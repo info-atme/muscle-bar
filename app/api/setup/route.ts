@@ -27,12 +27,12 @@ export async function GET() {
     // 既に紐付け済みか
     const { data: existing } = await client
       .from('staff')
-      .select('id')
+      .select('id, name, role')
       .eq('auth_user_id', user.id)
       .maybeSingle()
 
     if (existing) {
-      return NextResponse.json({ linked: true })
+      return NextResponse.json({ linked: true, me: existing })
     }
 
     const { data: staffList } = await client

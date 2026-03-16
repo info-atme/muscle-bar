@@ -16,8 +16,14 @@ const roleLabel: Record<string, string> = {
   staff: 'スタッフ',
 }
 
+type LinkedStaff = {
+  name: string
+  role: string
+}
+
 export default function SetupPage() {
-  const [step, setStep] = useState<'loading' | 'select' | 'create'>('loading')
+  const [step, setStep] = useState<'loading' | 'linked' | 'select' | 'create'>('loading')
+  const [linkedStaff, setLinkedStaff] = useState<LinkedStaff | null>(null)
   const [unlinkedStaff, setUnlinkedStaff] = useState<UnlinkedStaff[]>([])
   const [selectedStaffId, setSelectedStaffId] = useState('')
   const [newName, setNewName] = useState('')
@@ -39,7 +45,8 @@ export default function SetupPage() {
       const data = await res.json()
 
       if (data.linked) {
-        router.push('/dashboard')
+        setLinkedStaff(data.me)
+        setStep('linked')
         return
       }
 
@@ -108,6 +115,25 @@ export default function SetupPage() {
           <h1 className="text-2xl font-bold text-center text-white mb-2">初期設定</h1>
           <p className="text-center text-gray-400 text-sm">アカウントをスタッフ情報に紐付けます</p>
         </div>
+
+        {step === 'linked' && linkedStaff && (
+          <div className="bg-gray-800 rounded-xl p-6 text-center space-y-4">
+            <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center text-2xl font-bold mx-auto">
+              {linkedStaff.name.charAt(0)}
+            </div>
+            <div>
+              <p className="text-lg font-bold">{linkedStaff.name}</p>
+              <p className="text-sm text-gray-400">{roleLabel[linkedStaff.role]}</p>
+            </div>
+            <p className="text-sm text-green-400">設定済みです</p>
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="w-full py-3 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 transition-colors"
+            >
+              ダッシュボードへ
+            </button>
+          </div>
+        )}
 
         {step === 'select' && (
           <>
