@@ -1,5 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
-import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { AppNav } from '@/components/ui/app-nav'
 
@@ -17,22 +16,19 @@ export default async function AppLayout({
     redirect('/login')
   }
 
-  // RLSバイパスでスタッフ情報を取得（RLSの再帰問題を回避）
+  // RLSバイパスでスタッフ情報を取得
   let staff: { id: string; name: string; role: string } | null = null
 
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (serviceKey) {
-    const admin = createSupabaseClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      serviceKey
-    )
+  try {
+    const admin = createServiceClient()
     const { data } = await admin
       .from('staff')
       .select('id, name, role')
       .eq('auth_user_id', user.id)
       .maybeSingle()
     staff = data
-  } else {
+  } catch {
+    // SERVICE_ROLE_KEY未設定時はanon keyでフォールバック
     const { data } = await supabase
       .from('staff')
       .select('id, name, role')
