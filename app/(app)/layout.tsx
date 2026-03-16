@@ -1,6 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { redirect } from 'next/navigation'
 import { AppNav } from '@/components/ui/app-nav'
+
+export const dynamic = 'force-dynamic'
 
 export default async function AppLayout({
   children,
@@ -14,11 +17,29 @@ export default async function AppLayout({
     redirect('/login')
   }
 
-  const { data: staff } = await supabase
-    .from('staff')
-    .select('id, name, role')
-    .eq('auth_user_id', user.id)
-    .single()
+  // RLSバイパスでスタッフ情報を取得（RLSの再帰問題を回避）
+  let staff: { id: string; name: string; role: string } | null = null
+
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (serviceKey) {
+    const admin = createSupabaseClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      serviceKey
+    )
+    const { data } = await admin
+      .from('staff')
+      .select('id, name, role')
+      .eq('auth_user_id', user.id)
+      .maybeSingle()
+    staff = data
+  } else {
+    const { data } = await supabase
+      .from('staff')
+      .select('id, name, role')
+      .eq('auth_user_id', user.id)
+      .maybeSingle()
+    staff = data
+  }
 
   if (!staff) {
     redirect('/setup')
