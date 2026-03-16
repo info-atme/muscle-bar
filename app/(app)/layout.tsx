@@ -17,7 +17,7 @@ export default async function AppLayout({
   }
 
   // RLSバイパスでスタッフ情報を取得
-  let staff: { id: string; name: string; role: string } | null = null
+  let staff: { id: string; name: string; role: 'owner' | 'manager' | 'staff' } | null = null
 
   try {
     const admin = createServiceClient()
