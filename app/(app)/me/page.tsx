@@ -14,46 +14,27 @@ export default async function MyPage() {
 
   if (!user) redirect('/login')
 
-  const { data: staffData } = await supabase
-    .from('staff')
-    .select('*')
-    .eq('auth_user_id', user.id)
-    .single()
-
-  if (!staffData) redirect('/login')
-
-  const staff = staffData as StaffRow
-
   const today = new Date()
   const monthStart = format(startOfMonth(today), 'yyyy-MM-dd')
   const monthEnd = format(endOfMonth(today), 'yyyy-MM-dd')
 
-  // 今月の日次サマリー
-  const { data: monthlyData } = await supabase
-    .from('daily_summary')
-    .select('*')
-    .gte('date', monthStart)
-    .lte('date', monthEnd)
-    .order('date', { ascending: true })
+  // スタッフ情報と月次データを並列取得
+  const [staffRes, monthlyRes] = await Promise.all([
+    supabase.from('staff').select('*').eq('auth_user_id', user.id).single(),
+    supabase.from('daily_summary').select('*').gte('date', monthStart).lte('date', monthEnd).order('date', { ascending: true }),
+  ])
 
-  const monthlySummaries = (monthlyData ?? []) as DailySummaryRow[]
+  if (!staffRes.data) redirect('/login')
+  const staff = staffRes.data as StaffRow
+  const monthlySummaries = (monthlyRes.data ?? []) as DailySummaryRow[]
   const summaryIds = monthlySummaries.map((s) => s.id)
 
-  // 自分の今月パフォーマンス
   const { data: perfData } = summaryIds.length > 0
-    ? await supabase
-        .from('staff_performance')
-        .select('*')
-        .eq('staff_id', staff.id)
-        .in('daily_summary_id', summaryIds)
+    ? await supabase.from('staff_performance').select('*').eq('staff_id', staff.id).in('daily_summary_id', summaryIds)
     : { data: [] as StaffPerformanceRow[] }
 
   const performances = (perfData ?? []) as StaffPerformanceRow[]
-
-  // 日付マッピング
-  const summaryDateMap = Object.fromEntries(
-    monthlySummaries.map((s) => [s.id, s.date])
-  )
+  const summaryDateMap = Object.fromEntries(monthlySummaries.map((s) => [s.id, s.date]))
 
   return (
     <MyPageClient

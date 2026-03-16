@@ -12,27 +12,37 @@ export default async function DashboardPage() {
   const monthStart = format(startOfMonth(today), 'yyyy-MM-dd')
   const monthEnd = format(endOfMonth(today), 'yyyy-MM-dd')
 
-  // 今月の日次サマリー
-  const { data: monthlyData } = await supabase
-    .from('daily_summary')
-    .select('*')
-    .gte('date', monthStart)
-    .lte('date', monthEnd)
-    .order('date', { ascending: true })
-
-  const monthlySummaries = (monthlyData ?? []) as DailySummaryRow[]
-
-  // 直近7日間の日次サマリー
   const weekAgo = format(subDays(today, 7), 'yyyy-MM-dd')
-  const { data: recentData } = await supabase
-    .from('daily_summary')
-    .select('*')
-    .gte('date', weekAgo)
-    .order('date', { ascending: true })
 
-  const recentSummaries = (recentData ?? []) as DailySummaryRow[]
+  // 全クエリを並列実行
+  const [monthlyRes, recentRes, staffRes, pendingRes] = await Promise.all([
+    supabase
+      .from('daily_summary')
+      .select('*')
+      .gte('date', monthStart)
+      .lte('date', monthEnd)
+      .order('date', { ascending: true }),
+    supabase
+      .from('daily_summary')
+      .select('*')
+      .gte('date', weekAgo)
+      .order('date', { ascending: true }),
+    supabase
+      .from('staff')
+      .select('id, name')
+      .eq('is_active', true),
+    supabase
+      .from('daily_summary')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'draft'),
+  ])
 
-  // 今月のスタッフ実績（ランキング用）— joinは避けて別々に取得
+  const monthlySummaries = (monthlyRes.data ?? []) as DailySummaryRow[]
+  const recentSummaries = (recentRes.data ?? []) as DailySummaryRow[]
+  const staffList = (staffRes.data ?? []) as { id: string; name: string }[]
+  const pendingCount = pendingRes.count
+
+  // スタッフ実績（月次データ依存）
   const summaryIds = monthlySummaries.map((s) => s.id)
   const { data: perfData } = summaryIds.length > 0
     ? await supabase
@@ -42,20 +52,6 @@ export default async function DashboardPage() {
     : { data: [] as StaffPerformanceRow[] }
 
   const staffPerformances = (perfData ?? []) as StaffPerformanceRow[]
-
-  // スタッフ名取得
-  const { data: staffData } = await supabase
-    .from('staff')
-    .select('id, name')
-    .eq('is_active', true)
-
-  const staffList = (staffData ?? []) as { id: string; name: string }[]
-
-  // 未承認件数
-  const { count: pendingCount } = await supabase
-    .from('daily_summary')
-    .select('*', { count: 'exact', head: true })
-    .eq('status', 'draft')
 
   return (
     <DashboardClient
