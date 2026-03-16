@@ -21,7 +21,7 @@ export default async function AppLayout({
     .single()
 
   if (!staff) {
-    redirect('/login')
+    redirect('/setup')
   }
 
   return (
