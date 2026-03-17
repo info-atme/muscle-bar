@@ -421,7 +421,7 @@ export default function DailyInputPage() {
 
           {/* スタッフ選択 */}
           <div>
-            <p className="text-sm text-gray-400 mb-2">出勤スタッフを選択</p>
+            <p className="text-sm text-gray-400 mb-2">対象スタッフを選択（出退勤未登録でも選択可）</p>
             <div className="flex flex-wrap gap-2">
               {sortedStaffList.map((s) => {
                 const info = staffAttendanceMap[s.id]
@@ -455,6 +455,14 @@ export default function DailyInputPage() {
                 )
               })}
             </div>
+            {attendanceLoaded && selectedStaffIds.some(id => {
+              const info = staffAttendanceMap[id]
+              return !info || (!info.hasAttendance && !info.hasShiftAssignment)
+            }) && (
+              <p className="text-xs text-yellow-400 mt-1">
+                ⚠ 出退勤未登録のスタッフが含まれています（後から出退勤を追加してください）
+              </p>
+            )}
           </div>
 
           {/* 選択したスタッフのOP入力 */}
