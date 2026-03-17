@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { PayrollClient } from '@/components/payroll/payroll-client'
 import { format, startOfMonth, endOfMonth } from 'date-fns'
@@ -13,16 +13,26 @@ export default async function PayrollPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user) {
-    redirect('/login')
-  }
+  if (!user) redirect('/login')
 
-  // オーナー権限チェック
-  const { data: currentStaff } = await supabase
-    .from('staff')
-    .select('id, role')
-    .eq('auth_user_id', user.id)
-    .maybeSingle()
+  // オーナー権限チェック（service client使用）
+  let currentStaff: { id: string; role: string } | null = null
+  try {
+    const admin = createServiceClient()
+    const { data } = await admin
+      .from('staff')
+      .select('id, role')
+      .eq('auth_user_id', user.id)
+      .maybeSingle()
+    currentStaff = data
+  } catch {
+    const { data } = await supabase
+      .from('staff')
+      .select('id, role')
+      .eq('auth_user_id', user.id)
+      .maybeSingle()
+    currentStaff = data
+  }
 
   if (!currentStaff || currentStaff.role !== 'owner') {
     redirect('/dashboard')
@@ -32,19 +42,22 @@ export default async function PayrollPage() {
   const monthStart = format(startOfMonth(today), 'yyyy-MM-dd')
   const monthEnd = format(endOfMonth(today), 'yyyy-MM-dd')
 
-  // 全クエリを並列実行
+  // service clientで全クエリを並列実行（RLSバイパス）
+  let client = supabase
+  try { client = createServiceClient() as typeof supabase } catch {}
+
   const [staffRes, attendanceRes, summaryRes] = await Promise.all([
-    supabase
+    client
       .from('staff')
       .select('id, name, hourly_rate, is_active')
       .eq('is_active', true)
       .order('name'),
-    supabase
+    client
       .from('attendance')
       .select('*')
       .gte('target_date', monthStart)
       .lte('target_date', monthEnd),
-    supabase
+    client
       .from('daily_summary')
       .select('id, date, status')
       .gte('date', monthStart)

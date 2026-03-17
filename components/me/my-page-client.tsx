@@ -25,10 +25,19 @@ type Performance = {
   back_total: number
 }
 
+type AttendanceRecord = {
+  id: string
+  target_date: string
+  clock_in: string | null
+  clock_out: string | null
+  status: string
+}
+
 type Props = {
   staff: Staff
   performances: Performance[]
   summaryDateMap: Record<string, string>
+  attendanceList?: AttendanceRecord[]
 }
 
 const roleLabel: Record<string, string> = {
@@ -37,7 +46,19 @@ const roleLabel: Record<string, string> = {
   staff: 'スタッフ',
 }
 
-export function MyPageClient({ staff, performances, summaryDateMap }: Props) {
+function formatTime(iso: string | null) {
+  if (!iso) return '--:--'
+  try { return format(parseISO(iso), 'HH:mm') } catch { return '--:--' }
+}
+
+function calcHours(clockIn: string | null, clockOut: string | null): number {
+  if (!clockIn || !clockOut) return 0
+  try {
+    return Math.round((parseISO(clockOut).getTime() - parseISO(clockIn).getTime()) / 1000 / 60 / 60 * 10) / 10
+  } catch { return 0 }
+}
+
+export function MyPageClient({ staff, performances, summaryDateMap, attendanceList = [] }: Props) {
   const monthlyTotals = useMemo(() => {
     return performances.reduce(
       (acc, p) => ({
@@ -156,6 +177,32 @@ export function MyPageClient({ staff, performances, summaryDateMap }: Props) {
             <p className="text-gray-500 text-sm text-center py-4">データがありません</p>
           )}
         </div>
+      </div>
+
+      {/* 今月の出退勤 */}
+      <div className="bg-gray-800 rounded-xl p-4">
+        <h2 className="text-sm font-semibold text-gray-400 mb-3">今月の出退勤</h2>
+        {attendanceList.length > 0 ? (
+          <>
+            <div className="flex justify-between text-sm text-gray-400 mb-2 px-1">
+              <span>出勤日数: {attendanceList.length}日</span>
+              <span>合計: {attendanceList.reduce((sum, a) => sum + calcHours(a.clock_in, a.clock_out), 0).toFixed(1)}時間</span>
+            </div>
+            <div className="space-y-2">
+              {attendanceList.map((a) => (
+                <div key={a.id} className="flex items-center justify-between py-2 border-b border-gray-700 last:border-0">
+                  <span className="text-sm">{format(parseISO(a.target_date), 'M/d')}</span>
+                  <div className="flex gap-3 text-sm text-gray-400">
+                    <span>{formatTime(a.clock_in)} - {formatTime(a.clock_out)}</span>
+                    <span className="text-white font-medium">{calcHours(a.clock_in, a.clock_out)}h</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <p className="text-gray-500 text-sm text-center py-4">データがありません</p>
+        )}
       </div>
     </div>
   )

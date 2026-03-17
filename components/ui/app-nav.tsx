@@ -22,10 +22,12 @@ export function AppNav({ staffName, role }: Props) {
     ] : []),
     ...(role === 'staff' ? [
       { href: '/me', label: 'マイページ' },
+      { href: '/shifts/attendance', label: '出退勤' },
     ] : []),
     { href: '/tasks', label: 'タスク' },
     ...(role !== 'staff' ? [
       { href: '/shifts/manage', label: 'シフト' },
+      { href: '/shifts/attendance', label: '出退勤' },
     ] : [
       { href: '/shifts/preferences', label: 'シフト' },
     ]),

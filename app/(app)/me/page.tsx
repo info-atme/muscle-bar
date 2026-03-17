@@ -58,11 +58,29 @@ export default async function MyPage() {
   const performances = (perfData ?? []) as StaffPerformanceRow[]
   const summaryDateMap = Object.fromEntries(monthlySummaries.map((s) => [s.id, s.date]))
 
+  // 今月の出退勤データ
+  const { data: attendanceData } = await supabase
+    .from('attendance')
+    .select('*')
+    .eq('staff_id', staff.id)
+    .gte('target_date', monthStart)
+    .lte('target_date', monthEnd)
+    .order('target_date', { ascending: false })
+
+  type AttendanceRecord = {
+    id: string
+    target_date: string
+    clock_in: string | null
+    clock_out: string | null
+    status: string
+  }
+
   return (
     <MyPageClient
       staff={staff}
       performances={performances}
       summaryDateMap={summaryDateMap}
+      attendanceList={(attendanceData ?? []) as AttendanceRecord[]}
     />
   )
 }
