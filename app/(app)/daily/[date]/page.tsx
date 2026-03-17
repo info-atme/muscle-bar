@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import { DailyDetailClient } from '@/components/daily/daily-detail-client'
 import type { Database } from '@/lib/supabase/types'
@@ -45,15 +45,27 @@ export default async function DailyDetailPage({ params }: Props) {
     staff: staffNames.find((s) => s.id === p.staff_id) ?? null,
   }))
 
-  // 現在のユーザーのロール
+  // 現在のユーザーのロール（RLSバイパス）
   const { data: { user } } = await supabase.auth.getUser()
-  const { data: currentStaffData } = await supabase
-    .from('staff')
-    .select('id, role')
-    .eq('auth_user_id', user!.id)
-    .single()
+  let currentStaff: { id: string; role: string } | null = null
 
-  const currentStaff = currentStaffData as { id: string; role: string } | null
+  try {
+    const admin = createServiceClient()
+    const { data } = await admin
+      .from('staff')
+      .select('id, role')
+      .eq('auth_user_id', user!.id)
+      .maybeSingle()
+    currentStaff = data
+  } catch {
+    // SERVICE_ROLE_KEY未設定時はanon keyでフォールバック
+    const { data } = await supabase
+      .from('staff')
+      .select('id, role')
+      .eq('auth_user_id', user!.id)
+      .maybeSingle()
+    currentStaff = data
+  }
 
   return (
     <DailyDetailClient

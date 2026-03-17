@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { TasksClient } from '@/components/tasks/tasks-client'
 import type { Database } from '@/lib/supabase/types'
@@ -11,11 +11,26 @@ export default async function TasksPage() {
 
   if (!user) redirect('/login')
 
-  const { data: staff } = await supabase
-    .from('staff')
-    .select('id, role')
-    .eq('auth_user_id', user.id)
-    .single()
+  // RLSバイパスでスタッフ情報を取得
+  let staff: { id: string; role: string } | null = null
+
+  try {
+    const admin = createServiceClient()
+    const { data } = await admin
+      .from('staff')
+      .select('id, role')
+      .eq('auth_user_id', user.id)
+      .maybeSingle()
+    staff = data
+  } catch {
+    // SERVICE_ROLE_KEY未設定時はanon keyでフォールバック
+    const { data } = await supabase
+      .from('staff')
+      .select('id, role')
+      .eq('auth_user_id', user.id)
+      .maybeSingle()
+    staff = data
+  }
 
   if (!staff) redirect('/login')
 

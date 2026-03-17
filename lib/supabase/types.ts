@@ -310,6 +310,136 @@ export interface Database {
           }
         ]
       }
+      shift_preferences: {
+        Row: {
+          id: string
+          staff_id: string
+          target_date: string
+          preference: 'available' | 'unavailable' | 'preferred'
+          note: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          staff_id: string
+          target_date: string
+          preference: 'available' | 'unavailable' | 'preferred'
+          note?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          staff_id?: string
+          target_date?: string
+          preference?: 'available' | 'unavailable' | 'preferred'
+          note?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'shift_preferences_staff_id_fkey'
+            columns: ['staff_id']
+            isOneToOne: false
+            referencedRelation: 'staff'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      shift_assignments: {
+        Row: {
+          id: string
+          staff_id: string
+          target_date: string
+          status: 'assigned' | 'called_in' | 'cancelled'
+          assigned_by: string | null
+          note: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          staff_id: string
+          target_date: string
+          status?: 'assigned' | 'called_in' | 'cancelled'
+          assigned_by?: string | null
+          note?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          staff_id?: string
+          target_date?: string
+          status?: 'assigned' | 'called_in' | 'cancelled'
+          assigned_by?: string | null
+          note?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'shift_assignments_staff_id_fkey'
+            columns: ['staff_id']
+            isOneToOne: false
+            referencedRelation: 'staff'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'shift_assignments_assigned_by_fkey'
+            columns: ['assigned_by']
+            isOneToOne: false
+            referencedRelation: 'staff'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      attendance: {
+        Row: {
+          id: string
+          staff_id: string
+          target_date: string
+          clock_in: string | null
+          clock_out: string | null
+          status: 'working' | 'completed' | 'absent' | 'late'
+          note: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          staff_id: string
+          target_date: string
+          clock_in?: string | null
+          clock_out?: string | null
+          status?: 'working' | 'completed' | 'absent' | 'late'
+          note?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          staff_id?: string
+          target_date?: string
+          clock_in?: string | null
+          clock_out?: string | null
+          status?: 'working' | 'completed' | 'absent' | 'late'
+          note?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'attendance_staff_id_fkey'
+            columns: ['staff_id']
+            isOneToOne: false
+            referencedRelation: 'staff'
+            referencedColumns: ['id']
+          }
+        ]
+      }
       notification_rules: {
         Row: {
           id: string

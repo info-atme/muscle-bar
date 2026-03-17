@@ -25,6 +25,11 @@ export function AppNav({ staffName, role }: Props) {
     ] : []),
     { href: '/tasks', label: 'タスク' },
     ...(role !== 'staff' ? [
+      { href: '/shifts/manage', label: 'シフト' },
+    ] : [
+      { href: '/shifts/preferences', label: 'シフト' },
+    ]),
+    ...(role !== 'staff' ? [
       { href: '/events', label: 'イベント' },
     ] : []),
     ...(role === 'owner' ? [

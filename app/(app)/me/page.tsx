@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { MyPageClient } from '@/components/me/my-page-client'
 import { format, startOfMonth, endOfMonth } from 'date-fns'
@@ -18,15 +18,37 @@ export default async function MyPage() {
   const monthStart = format(startOfMonth(today), 'yyyy-MM-dd')
   const monthEnd = format(endOfMonth(today), 'yyyy-MM-dd')
 
-  // スタッフ情報と月次データを並列取得
-  const [staffRes, monthlyRes] = await Promise.all([
-    supabase.from('staff').select('*').eq('auth_user_id', user.id).single(),
-    supabase.from('daily_summary').select('*').gte('date', monthStart).lte('date', monthEnd).order('date', { ascending: true }),
-  ])
+  // スタッフ情報を取得（RLSバイパス）
+  let staff: StaffRow | null = null
 
-  if (!staffRes.data) redirect('/login')
-  const staff = staffRes.data as StaffRow
-  const monthlySummaries = (monthlyRes.data ?? []) as DailySummaryRow[]
+  try {
+    const admin = createServiceClient()
+    const { data } = await admin
+      .from('staff')
+      .select('*')
+      .eq('auth_user_id', user.id)
+      .maybeSingle()
+    staff = data as StaffRow | null
+  } catch {
+    // SERVICE_ROLE_KEY未設定時はanon keyでフォールバック
+    const { data } = await supabase
+      .from('staff')
+      .select('*')
+      .eq('auth_user_id', user.id)
+      .maybeSingle()
+    staff = data as StaffRow | null
+  }
+
+  if (!staff) redirect('/login')
+
+  // 月次データを取得
+  const { data: monthlyData } = await supabase
+    .from('daily_summary')
+    .select('*')
+    .gte('date', monthStart)
+    .lte('date', monthEnd)
+    .order('date', { ascending: true })
+  const monthlySummaries = (monthlyData ?? []) as DailySummaryRow[]
   const summaryIds = monthlySummaries.map((s) => s.id)
 
   const { data: perfData } = summaryIds.length > 0
