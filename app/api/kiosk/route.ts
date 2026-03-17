@@ -2,6 +2,11 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import type { Database } from '@/lib/supabase/types'
 
+// 店舗の位置情報（沖縄エリア — 後で調整）
+const STORE_LAT = 26.3344
+const STORE_LNG = 127.7670
+const MAX_DISTANCE_METERS = 100
+
 function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -16,6 +21,32 @@ function getTodayDate(): string {
   const now = new Date()
   const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000)
   return jst.toISOString().split('T')[0]
+}
+
+/**
+ * Haversine formula で2点間の距離（メートル）を計算
+ */
+function haversineDistance(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number
+): number {
+  const R = 6371000 // 地球の半径（メートル）
+  const toRad = (deg: number) => (deg * Math.PI) / 180
+
+  const dLat = toRad(lat2 - lat1)
+  const dLng = toRad(lng2 - lng1)
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2)
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return R * c
 }
 
 // アクティブなスタッフ一覧と本日の出勤状況を取得
@@ -87,7 +118,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { staffId, pin, action } = await request.json()
+    const { staffId, pin, action, lat, lng, photo } = await request.json()
 
     if (!staffId || !action) {
       return NextResponse.json(
@@ -100,6 +131,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'action は clock_in または clock_out を指定してください' },
         { status: 400 }
+      )
+    }
+
+    // ── GPS位置チェック ──
+    if (lat == null || lng == null) {
+      return NextResponse.json(
+        { error: '位置情報が取得できません。GPSを有効にしてください。' },
+        { status: 400 }
+      )
+    }
+
+    const distance = haversineDistance(lat, lng, STORE_LAT, STORE_LNG)
+    if (distance > MAX_DISTANCE_METERS) {
+      return NextResponse.json(
+        {
+          error: '店舗の近くで打刻してください',
+          distance: Math.round(distance),
+        },
+        { status: 403 }
       )
     }
 
@@ -140,6 +190,39 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // ── 写真アップロード ──
+    let photoUrl: string | null = null
+    if (photo) {
+      try {
+        const today = getTodayDate()
+        const timestamp = Date.now()
+        const filePath = `${today}/${staffId}_${timestamp}.jpg`
+
+        // base64 → Buffer
+        const base64Data = photo.replace(/^data:image\/\w+;base64,/, '')
+        const buffer = Buffer.from(base64Data, 'base64')
+
+        const { error: uploadError } = await admin.storage
+          .from('attendance-photos')
+          .upload(filePath, buffer, {
+            contentType: 'image/jpeg',
+            upsert: false,
+          })
+
+        if (uploadError) {
+          console.error('Photo upload error:', uploadError.message)
+        } else {
+          const {
+            data: { publicUrl },
+          } = admin.storage.from('attendance-photos').getPublicUrl(filePath)
+          photoUrl = publicUrl
+        }
+      } catch (photoErr) {
+        console.error('Photo processing error:', photoErr)
+        // 写真アップロード失敗でも打刻は続行
+      }
+    }
+
     const today = getTodayDate()
     const now = new Date().toISOString()
 
@@ -167,12 +250,18 @@ export async function POST(request: NextRequest) {
             clock_in: now,
             clock_out: null,
             status: 'working' as const,
+            lat,
+            lng,
+            photo_url: photoUrl,
             updated_at: now,
           })
           .eq('id', existing.id)
 
         if (updateError) {
-          return NextResponse.json({ error: updateError.message }, { status: 500 })
+          return NextResponse.json(
+            { error: updateError.message },
+            { status: 500 }
+          )
         }
       } else {
         // 新規レコード作成
@@ -183,10 +272,16 @@ export async function POST(request: NextRequest) {
             target_date: today,
             clock_in: now,
             status: 'working' as const,
+            lat,
+            lng,
+            photo_url: photoUrl,
           })
 
         if (insertError) {
-          return NextResponse.json({ error: insertError.message }, { status: 500 })
+          return NextResponse.json(
+            { error: insertError.message },
+            { status: 500 }
+          )
         }
       }
 
@@ -206,12 +301,18 @@ export async function POST(request: NextRequest) {
         .update({
           clock_out: now,
           status: 'completed' as const,
+          lat,
+          lng,
+          photo_url: photoUrl,
           updated_at: now,
         })
         .eq('id', existing.id)
 
       if (updateError) {
-        return NextResponse.json({ error: updateError.message }, { status: 500 })
+        return NextResponse.json(
+          { error: updateError.message },
+          { status: 500 }
+        )
       }
 
       return NextResponse.json({ ok: true, action: 'clock_out', time: now })

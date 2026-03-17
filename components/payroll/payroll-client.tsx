@@ -19,6 +19,7 @@ type Attendance = {
   clock_in: string | null
   clock_out: string | null
   status: 'working' | 'completed' | 'absent' | 'late'
+  approved: boolean
 }
 
 type StaffPerformance = {
@@ -71,12 +72,17 @@ export function PayrollClient({
     return format(d, 'yyyy年M月', { locale: ja })
   }, [month])
 
+  // 未承認レコードの有無
+  const hasUnapproved = useMemo(() => {
+    return attendanceList.some((a) => !a.approved)
+  }, [attendanceList])
+
   // スタッフ別集計
   const payrollData = useMemo(() => {
     return staffList.map((staff) => {
-      // 出勤データ（absent以外）
+      // 出勤データ（承認済 かつ absent以外）
       const staffAttendance = attendanceList.filter(
-        (a) => a.staff_id === staff.id && a.status !== 'absent'
+        (a) => a.staff_id === staff.id && a.status !== 'absent' && a.approved
       )
 
       const workDays = staffAttendance.length
@@ -144,6 +150,15 @@ export function PayrollClient({
           &gt;
         </button>
       </div>
+
+      {/* 未承認警告 */}
+      {hasUnapproved && (
+        <div className="bg-yellow-900/30 border border-yellow-700 rounded-xl px-4 py-3">
+          <p className="text-yellow-400 text-sm">
+            未承認の勤怠は含まれていません
+          </p>
+        </div>
+      )}
 
       {/* テーブル */}
       <div className="bg-gray-800 rounded-xl overflow-x-auto">

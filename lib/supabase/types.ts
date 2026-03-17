@@ -411,6 +411,11 @@ export interface Database {
           clock_out: string | null
           status: 'working' | 'completed' | 'absent' | 'late'
           note: string | null
+          lat: number | null
+          lng: number | null
+          photo_url: string | null
+          approved: boolean
+          approved_by: string | null
           created_at: string
           updated_at: string
         }
@@ -422,6 +427,11 @@ export interface Database {
           clock_out?: string | null
           status?: 'working' | 'completed' | 'absent' | 'late'
           note?: string | null
+          lat?: number | null
+          lng?: number | null
+          photo_url?: string | null
+          approved?: boolean
+          approved_by?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -433,6 +443,11 @@ export interface Database {
           clock_out?: string | null
           status?: 'working' | 'completed' | 'absent' | 'late'
           note?: string | null
+          lat?: number | null
+          lng?: number | null
+          photo_url?: string | null
+          approved?: boolean
+          approved_by?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -440,6 +455,58 @@ export interface Database {
           {
             foreignKeyName: 'attendance_staff_id_fkey'
             columns: ['staff_id']
+            isOneToOne: false
+            referencedRelation: 'staff'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'attendance_approved_by_fkey'
+            columns: ['approved_by']
+            isOneToOne: false
+            referencedRelation: 'staff'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      attendance_log: {
+        Row: {
+          id: string
+          attendance_id: string
+          action: string
+          changed_by: string | null
+          old_values: Json | null
+          new_values: Json | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          attendance_id: string
+          action: string
+          changed_by?: string | null
+          old_values?: Json | null
+          new_values?: Json | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          attendance_id?: string
+          action?: string
+          changed_by?: string | null
+          old_values?: Json | null
+          new_values?: Json | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'attendance_log_attendance_id_fkey'
+            columns: ['attendance_id']
+            isOneToOne: false
+            referencedRelation: 'attendance'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'attendance_log_changed_by_fkey'
+            columns: ['changed_by']
             isOneToOne: false
             referencedRelation: 'staff'
             referencedColumns: ['id']

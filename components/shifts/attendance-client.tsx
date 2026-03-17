@@ -15,6 +15,10 @@ type AttendanceRecord = {
   clock_in: string | null
   clock_out: string | null
   status: 'working' | 'completed' | 'absent' | 'late'
+  approved: boolean
+  approved_by: string | null
+  photo_url: string | null
+  note: string | null
 }
 
 type Props = {
@@ -37,6 +41,10 @@ export function AttendanceClient({ currentStaff, staffList, attendanceData: init
   const [selectedDate, setSelectedDate] = useState(today)
   const [attendance, setAttendance] = useState(initialData)
   const [loading, setLoading] = useState(false)
+  const [editModal, setEditModal] = useState<AttendanceRecord | null>(null)
+  const [editClockIn, setEditClockIn] = useState('')
+  const [editClockOut, setEditClockOut] = useState('')
+  const [photoModal, setPhotoModal] = useState<string | null>(null)
 
   const myAttendance = attendance.find(
     (a) => a.staff_id === currentStaff.id && a.target_date === selectedDate
@@ -115,6 +123,142 @@ export function AttendanceClient({ currentStaff, staffList, attendanceData: init
     setLoading(false)
   }, [myAttendance, supabase])
 
+  // 承認
+  const approveRecord = useCallback(async (recordId: string) => {
+    setLoading(true)
+    const now = new Date().toISOString()
+
+    const { data } = await supabase
+      .from('attendance')
+      .update({ approved: true, approved_by: currentStaff.id, updated_at: now })
+      .eq('id', recordId)
+      .select()
+      .single()
+
+    if (data) {
+      // 監査ログ
+      await supabase.from('attendance_log').insert({
+        attendance_id: recordId,
+        action: 'approve',
+        changed_by: currentStaff.id,
+        old_values: { approved: false },
+        new_values: { approved: true },
+      })
+      setAttendance((prev) =>
+        prev.map((a) => (a.id === recordId ? (data as AttendanceRecord) : a))
+      )
+    }
+    setLoading(false)
+  }, [currentStaff.id, supabase])
+
+  // 一括承認
+  const approveAll = useCallback(async () => {
+    setLoading(true)
+    const now = new Date().toISOString()
+    const unapproved = attendance.filter(
+      (a) => a.target_date === selectedDate && !a.approved
+    )
+
+    for (const record of unapproved) {
+      await supabase
+        .from('attendance')
+        .update({ approved: true, approved_by: currentStaff.id, updated_at: now })
+        .eq('id', record.id)
+
+      await supabase.from('attendance_log').insert({
+        attendance_id: record.id,
+        action: 'approve',
+        changed_by: currentStaff.id,
+        old_values: { approved: false },
+        new_values: { approved: true },
+      })
+    }
+
+    // 再取得
+    const { data } = await supabase
+      .from('attendance')
+      .select('*')
+      .eq('target_date', selectedDate)
+    setAttendance((data ?? []) as AttendanceRecord[])
+    setLoading(false)
+  }, [attendance, selectedDate, currentStaff.id, supabase])
+
+  // 編集モーダルを開く
+  const openEditModal = useCallback((record: AttendanceRecord) => {
+    setEditModal(record)
+    setEditClockIn(record.clock_in ? format(parseISO(record.clock_in), "yyyy-MM-dd'T'HH:mm") : '')
+    setEditClockOut(record.clock_out ? format(parseISO(record.clock_out), "yyyy-MM-dd'T'HH:mm") : '')
+  }, [])
+
+  // 編集を保存
+  const saveEdit = useCallback(async () => {
+    if (!editModal) return
+    setLoading(true)
+    const now = new Date().toISOString()
+
+    const oldValues = {
+      clock_in: editModal.clock_in,
+      clock_out: editModal.clock_out,
+    }
+
+    const newClockIn = editClockIn ? new Date(editClockIn).toISOString() : null
+    const newClockOut = editClockOut ? new Date(editClockOut).toISOString() : null
+
+    const { data } = await supabase
+      .from('attendance')
+      .update({
+        clock_in: newClockIn,
+        clock_out: newClockOut,
+        updated_at: now,
+      })
+      .eq('id', editModal.id)
+      .select()
+      .single()
+
+    if (data) {
+      await supabase.from('attendance_log').insert({
+        attendance_id: editModal.id,
+        action: 'edit',
+        changed_by: currentStaff.id,
+        old_values: oldValues,
+        new_values: { clock_in: newClockIn, clock_out: newClockOut },
+      })
+      setAttendance((prev) =>
+        prev.map((a) => (a.id === editModal.id ? (data as AttendanceRecord) : a))
+      )
+    }
+    setEditModal(null)
+    setLoading(false)
+  }, [editModal, editClockIn, editClockOut, currentStaff.id, supabase])
+
+  // ステータス変更（欠勤・遅刻）
+  const setStatus = useCallback(async (recordId: string, status: 'absent' | 'late') => {
+    setLoading(true)
+    const now = new Date().toISOString()
+    const record = attendance.find((a) => a.id === recordId)
+
+    const { data } = await supabase
+      .from('attendance')
+      .update({ status, updated_at: now })
+      .eq('id', recordId)
+      .select()
+      .single()
+
+    if (data) {
+      await supabase.from('attendance_log').insert({
+        attendance_id: recordId,
+        action: 'edit',
+        changed_by: currentStaff.id,
+        old_values: { status: record?.status },
+        new_values: { status },
+      })
+      setAttendance((prev) =>
+        prev.map((a) => (a.id === recordId ? (data as AttendanceRecord) : a))
+      )
+    }
+    setLoading(false)
+  }, [attendance, currentStaff.id, supabase])
+
   const formatTime = (iso: string | null) => {
     if (!iso) return '--:--'
     try {
@@ -125,6 +269,9 @@ export function AttendanceClient({ currentStaff, staffList, attendanceData: init
   }
 
   const isToday = selectedDate === today
+  const hasUnapproved = attendance.some(
+    (a) => a.target_date === selectedDate && !a.approved
+  )
 
   return (
     <div className="space-y-6">
@@ -163,6 +310,12 @@ export function AttendanceClient({ currentStaff, staffList, attendanceData: init
             <span className={`text-xs px-2 py-1 rounded-full ${STATUS_LABELS[myAttendance.status]?.color ?? 'bg-gray-600'}`}>
               {STATUS_LABELS[myAttendance.status]?.label ?? myAttendance.status}
             </span>
+            {/* 承認ステータス */}
+            {myAttendance.approved ? (
+              <span className="text-green-400 text-sm" title="承認済">&#10003; 承認済</span>
+            ) : (
+              <span className="text-yellow-400 text-sm" title="未承認">&#9679; 未承認</span>
+            )}
           </div>
         )}
 
@@ -193,9 +346,24 @@ export function AttendanceClient({ currentStaff, staffList, attendanceData: init
       {/* マネージャー用：全スタッフ一覧 */}
       {isManager && (
         <div className="bg-gray-800 rounded-xl p-4">
-          <h2 className="text-sm font-semibold text-gray-400 mb-3">
-            スタッフ勤怠 ({format(parseISO(selectedDate), 'M/d', { locale: ja })})
-          </h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-gray-400">
+              スタッフ勤怠 ({format(parseISO(selectedDate), 'M/d', { locale: ja })})
+            </h2>
+            {hasUnapproved && (
+              <button
+                onClick={approveAll}
+                disabled={loading}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg text-xs font-medium transition-colors"
+              >
+                一括承認
+              </button>
+            )}
+          </div>
+
+          <p className="text-xs text-gray-500 mb-3">
+            ※ 承認済の勤怠のみ給与計算に反映されます
+          </p>
 
           {loading && (
             <p className="text-gray-500 text-sm text-center py-4">読み込み中...</p>
@@ -210,23 +378,86 @@ export function AttendanceClient({ currentStaff, staffList, attendanceData: init
               return (
                 <div
                   key={staff.id}
-                  className="flex items-center justify-between py-2 border-b border-gray-700 last:border-0"
+                  className="py-3 border-b border-gray-700 last:border-0"
                 >
-                  <span className="text-sm font-medium">{staff.name}</span>
-                  <div className="flex items-center gap-3">
-                    {record ? (
-                      <>
-                        <span className="text-xs text-gray-400 font-mono">
-                          {formatTime(record.clock_in)} - {formatTime(record.clock_out)}
-                        </span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_LABELS[record.status]?.color ?? 'bg-gray-600'}`}>
-                          {STATUS_LABELS[record.status]?.label ?? record.status}
-                        </span>
-                      </>
-                    ) : (
-                      <span className="text-xs text-gray-600">未打刻</span>
-                    )}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">{staff.name}</span>
+                      {record && (
+                        record.approved ? (
+                          <span className="text-green-400 text-xs" title="承認済">&#10003;</span>
+                        ) : (
+                          <span className="text-yellow-400 text-xs" title="未承認">&#9679;</span>
+                        )
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {record ? (
+                        <>
+                          {record.photo_url && (
+                            <button
+                              onClick={() => setPhotoModal(record.photo_url)}
+                              className="w-6 h-6 rounded overflow-hidden border border-gray-600 flex-shrink-0"
+                              title="写真を表示"
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={record.photo_url}
+                                alt="出勤写真"
+                                className="w-full h-full object-cover"
+                              />
+                            </button>
+                          )}
+                          <span className="text-xs text-gray-400 font-mono">
+                            {formatTime(record.clock_in)} - {formatTime(record.clock_out)}
+                          </span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_LABELS[record.status]?.color ?? 'bg-gray-600'}`}>
+                            {STATUS_LABELS[record.status]?.label ?? record.status}
+                          </span>
+                          {!record.approved && (
+                            <button
+                              onClick={() => approveRecord(record.id)}
+                              disabled={loading}
+                              className="px-2 py-0.5 bg-green-700 hover:bg-green-600 disabled:bg-gray-700 disabled:text-gray-500 rounded text-xs font-medium transition-colors"
+                            >
+                              承認
+                            </button>
+                          )}
+                          <button
+                            onClick={() => openEditModal(record)}
+                            disabled={loading}
+                            className="px-2 py-0.5 bg-gray-600 hover:bg-gray-500 disabled:bg-gray-700 disabled:text-gray-500 rounded text-xs font-medium transition-colors"
+                          >
+                            編集
+                          </button>
+                        </>
+                      ) : (
+                        <span className="text-xs text-gray-600">未打刻</span>
+                      )}
+                    </div>
                   </div>
+                  {/* ステータス変更ボタン（レコードがある場合のみ） */}
+                  {record && (
+                    <div className="flex gap-2 mt-2 ml-4">
+                      <button
+                        onClick={() => setStatus(record.id, 'absent')}
+                        disabled={loading || record.status === 'absent'}
+                        className="px-2 py-0.5 bg-red-800 hover:bg-red-700 disabled:bg-gray-700 disabled:text-gray-500 rounded text-xs transition-colors"
+                      >
+                        欠勤
+                      </button>
+                      <button
+                        onClick={() => setStatus(record.id, 'late')}
+                        disabled={loading || record.status === 'late'}
+                        className="px-2 py-0.5 bg-yellow-800 hover:bg-yellow-700 disabled:bg-gray-700 disabled:text-gray-500 rounded text-xs transition-colors"
+                      >
+                        遅刻
+                      </button>
+                      {record.note && (
+                        <span className="text-xs text-gray-500 ml-2">{record.note}</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -235,6 +466,72 @@ export function AttendanceClient({ currentStaff, staffList, attendanceData: init
           {staffList.length === 0 && (
             <p className="text-gray-500 text-sm text-center py-4">スタッフがいません</p>
           )}
+        </div>
+      )}
+
+      {/* 編集モーダル */}
+      {editModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-gray-800 rounded-xl p-6 w-full max-w-sm space-y-4">
+            <h3 className="text-lg font-bold">勤怠編集</h3>
+            <p className="text-sm text-gray-400">
+              {staffList.find((s) => s.id === editModal.staff_id)?.name ?? '不明'} - {editModal.target_date}
+            </p>
+
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">出勤時刻</label>
+              <input
+                type="datetime-local"
+                value={editClockIn}
+                onChange={(e) => setEditClockIn(e.target.value)}
+                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">退勤時刻</label>
+              <input
+                type="datetime-local"
+                value={editClockOut}
+                onChange={(e) => setEditClockOut(e.target.value)}
+                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={saveEdit}
+                disabled={loading}
+                className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg text-sm font-medium transition-colors"
+              >
+                保存
+              </button>
+              <button
+                onClick={() => setEditModal(null)}
+                className="flex-1 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors"
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 写真プレビューモーダル */}
+      {photoModal && (
+        <div
+          className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
+          onClick={() => setPhotoModal(null)}
+        >
+          <div className="max-w-lg w-full">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={photoModal}
+              alt="出勤写真"
+              className="w-full rounded-xl"
+            />
+            <p className="text-center text-gray-400 text-sm mt-2">タップで閉じる</p>
+          </div>
         </div>
       )}
     </div>

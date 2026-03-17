@@ -10,6 +10,10 @@ type AttendanceRecord = {
   clock_in: string | null
   clock_out: string | null
   status: 'working' | 'completed' | 'absent' | 'late'
+  approved: boolean
+  approved_by: string | null
+  photo_url: string | null
+  note: string | null
 }
 
 export default async function AttendancePage() {
@@ -62,15 +66,15 @@ export default async function AttendancePage() {
     }
   }
 
-  // 今日の勤怠データ
+  // 今日の勤怠データ（approved, approved_by, photo_url, note を含む）
   const { data: attendanceData } = isManager
     ? await supabase
         .from('attendance')
-        .select('*')
+        .select('id, staff_id, target_date, clock_in, clock_out, status, approved, approved_by, photo_url, note')
         .eq('target_date', today)
     : await supabase
         .from('attendance')
-        .select('*')
+        .select('id, staff_id, target_date, clock_in, clock_out, status, approved, approved_by, photo_url, note')
         .eq('staff_id', currentStaff.id)
         .eq('target_date', today)
 
