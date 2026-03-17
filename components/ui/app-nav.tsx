@@ -34,6 +34,7 @@ export function AppNav({ staffName, role }: Props) {
     ] : []),
     ...(role === 'owner' ? [
       { href: '/staff', label: 'スタッフ' },
+      { href: '/payroll', label: '給与' },
     ] : []),
   ]
 

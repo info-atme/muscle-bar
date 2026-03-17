@@ -14,6 +14,8 @@ type Staff = {
   back_tip: number
   back_champagne: number
   back_orichan: number
+  hourly_rate: number
+  pin: string | null
   line_user_id: string | null
   is_active: boolean
   created_at: string
@@ -27,6 +29,8 @@ type FormData = {
   back_tip: number
   back_champagne: number
   back_orichan: number
+  hourly_rate: number
+  pin: string
   is_active: boolean
 }
 
@@ -38,6 +42,8 @@ const defaultForm: FormData = {
   back_tip: 0.40,
   back_champagne: 0.20,
   back_orichan: 0.30,
+  hourly_rate: 1200,
+  pin: '',
   is_active: true,
 }
 
@@ -71,6 +77,8 @@ export function StaffManagementClient({ staffList: initialList }: Props) {
       back_tip: staff.back_tip,
       back_champagne: staff.back_champagne,
       back_orichan: staff.back_orichan,
+      hourly_rate: staff.hourly_rate,
+      pin: staff.pin ?? '',
       is_active: staff.is_active,
     })
   }
@@ -88,10 +96,14 @@ export function StaffManagementClient({ staffList: initialList }: Props) {
 
   async function handleSave() {
     setSaving(true)
+    const payload = {
+      ...form,
+      pin: form.pin.trim() || null,
+    }
     if (adding) {
       const { data } = await supabase
         .from('staff')
-        .insert(form)
+        .insert(payload)
         .select()
         .single()
       if (data) {
@@ -100,9 +112,9 @@ export function StaffManagementClient({ staffList: initialList }: Props) {
     } else if (editing) {
       await supabase
         .from('staff')
-        .update(form)
+        .update(payload)
         .eq('id', editing)
-      setStaffList(staffList.map((s) => s.id === editing ? { ...s, ...form } : s))
+      setStaffList(staffList.map((s) => s.id === editing ? { ...s, ...payload } : s))
     }
     setSaving(false)
     close()
@@ -189,6 +201,38 @@ export function StaffManagementClient({ staffList: initialList }: Props) {
                   <option value="manager">マネージャー</option>
                   <option value="owner">オーナー</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="text-sm text-gray-400">時給</label>
+                <div className="flex items-center gap-2 mt-1">
+                  <input
+                    type="number"
+                    min="0"
+                    step="100"
+                    value={form.hourly_rate}
+                    onChange={(e) => setForm({ ...form, hourly_rate: parseInt(e.target.value) || 0 })}
+                    className="w-full bg-gray-700 rounded-lg px-3 py-2 text-white outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-400 flex-shrink-0">円</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm text-gray-400">PIN（4桁・任意）</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={4}
+                  pattern="[0-9]*"
+                  placeholder="1234"
+                  value={form.pin}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/[^0-9]/g, '').slice(0, 4)
+                    setForm({ ...form, pin: v })
+                  }}
+                  className="w-full mt-1 bg-gray-700 rounded-lg px-3 py-2 text-white outline-none focus:ring-2 focus:ring-blue-500"
+                />
               </div>
 
               <div>

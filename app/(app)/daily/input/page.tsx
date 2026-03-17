@@ -32,6 +32,11 @@ type SummaryData = {
   repeat_count: number
 }
 
+type StaffAttendanceInfo = {
+  hasAttendance: boolean
+  hasShiftAssignment: boolean
+}
+
 const STORAGE_KEY = 'daily-input-draft'
 
 function NumberInput({
@@ -68,6 +73,8 @@ export default function DailyInputPage() {
   const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([])
   const [staffInputs, setStaffInputs] = useState<StaffInput[]>([])
   const [currentStaffIndex, setCurrentStaffIndex] = useState(0)
+  const [staffAttendanceMap, setStaffAttendanceMap] = useState<Record<string, StaffAttendanceInfo>>({})
+  const [attendanceLoaded, setAttendanceLoaded] = useState(false)
   const [summary, setSummary] = useState<SummaryData>({
     date: format(new Date(), 'yyyy-MM-dd'),
     cash_amount: 0,
@@ -98,6 +105,41 @@ export default function DailyInputPage() {
     }
     fetchStaff()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 選択日の出勤・シフト情報を取得
+  const fetchAttendanceInfo = useCallback(async (date: string) => {
+    setAttendanceLoaded(false)
+    const [{ data: shiftData }, { data: attendanceData }] = await Promise.all([
+      supabase
+        .from('shift_assignments')
+        .select('staff_id')
+        .eq('target_date', date)
+        .in('status', ['assigned', 'called_in']),
+      supabase
+        .from('attendance')
+        .select('staff_id')
+        .eq('target_date', date),
+    ])
+
+    const map: Record<string, StaffAttendanceInfo> = {}
+
+    if (shiftData) {
+      for (const row of shiftData) {
+        if (!map[row.staff_id]) map[row.staff_id] = { hasAttendance: false, hasShiftAssignment: false }
+        map[row.staff_id].hasShiftAssignment = true
+      }
+    }
+    if (attendanceData) {
+      for (const row of attendanceData) {
+        if (!map[row.staff_id]) map[row.staff_id] = { hasAttendance: false, hasShiftAssignment: false }
+        map[row.staff_id].hasAttendance = true
+      }
+    }
+
+    setStaffAttendanceMap(map)
+    setAttendanceLoaded(true)
+    return map
+  }, [supabase])
 
   // localStorageから下書き復元
   useEffect(() => {
@@ -161,11 +203,58 @@ export default function DailyInputPage() {
     })
   }
 
+  // 日付確定時にシフト・出勤情報を取得し、自動選択する
+  async function handleDateConfirm() {
+    const map = await fetchAttendanceInfo(summary.date)
+
+    // 出勤記録またはシフトがあるスタッフを自動選択（既存の選択がなければ）
+    if (selectedStaffIds.length === 0 && staffList.length > 0) {
+      const autoIds: string[] = []
+      const autoInputs: StaffInput[] = []
+
+      for (const staff of staffList) {
+        const info = map[staff.id]
+        if (info && (info.hasAttendance || info.hasShiftAssignment)) {
+          autoIds.push(staff.id)
+          autoInputs.push({
+            staff_id: staff.id,
+            name: staff.name,
+            op_count: 0,
+            kanpai_count: 0,
+            tip_amount: 0,
+            champagne_amount: 0,
+            orichan_amount: 0,
+          })
+        }
+      }
+
+      if (autoIds.length > 0) {
+        setSelectedStaffIds(autoIds)
+        setStaffInputs(autoInputs)
+      }
+    }
+
+    setStep(2)
+  }
+
   function updateStaffInput(index: number, field: keyof StaffInput, value: number) {
     setStaffInputs((prev) => {
       const updated = [...prev]
       updated[index] = { ...updated[index], [field]: value }
       return updated
+    })
+  }
+
+  // スタッフリストをソート: シフト・出勤ありを上、なしを下
+  function getSortedStaffList() {
+    return [...staffList].sort((a, b) => {
+      const aInfo = staffAttendanceMap[a.id]
+      const bInfo = staffAttendanceMap[b.id]
+      const aHas = aInfo ? (aInfo.hasAttendance || aInfo.hasShiftAssignment) : false
+      const bHas = bInfo ? (bInfo.hasAttendance || bInfo.hasShiftAssignment) : false
+      if (aHas && !bHas) return -1
+      if (!aHas && bHas) return 1
+      return 0
     })
   }
 
@@ -245,6 +334,8 @@ export default function DailyInputPage() {
             })
             setSelectedStaffIds([])
             setStaffInputs([])
+            setStaffAttendanceMap({})
+            setAttendanceLoaded(false)
           }}
           className="px-6 py-3 bg-blue-600 rounded-lg font-bold hover:bg-blue-700 transition-colors"
         >
@@ -253,6 +344,8 @@ export default function DailyInputPage() {
       </div>
     )
   }
+
+  const sortedStaffList = getSortedStaffList()
 
   return (
     <div>
@@ -281,7 +374,7 @@ export default function DailyInputPage() {
             className="w-full px-4 py-3 rounded-lg bg-gray-800 text-white border border-gray-700 focus:border-blue-500 focus:outline-none text-lg"
           />
           <button
-            onClick={() => setStep(2)}
+            onClick={handleDateConfirm}
             className="w-full py-4 bg-blue-600 rounded-lg font-bold text-lg hover:bg-blue-700 transition-colors"
           >
             次へ
@@ -330,19 +423,37 @@ export default function DailyInputPage() {
           <div>
             <p className="text-sm text-gray-400 mb-2">出勤スタッフを選択</p>
             <div className="flex flex-wrap gap-2">
-              {staffList.map((s) => (
-                <button
-                  key={s.id}
-                  onClick={() => toggleStaff(s.id, s.name)}
-                  className={`px-4 py-2 rounded-lg font-medium text-base transition-colors ${
-                    selectedStaffIds.includes(s.id)
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                  }`}
-                >
-                  {s.name}
-                </button>
-              ))}
+              {sortedStaffList.map((s) => {
+                const info = staffAttendanceMap[s.id]
+                const hasRecord = info && (info.hasAttendance || info.hasShiftAssignment)
+                const isSelected = selectedStaffIds.includes(s.id)
+
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => toggleStaff(s.id, s.name)}
+                    className={`px-4 py-2 rounded-lg font-medium text-base transition-colors flex items-center gap-1.5 ${
+                      isSelected
+                        ? 'bg-blue-600 text-white'
+                        : hasRecord
+                          ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                          : 'bg-gray-800 text-gray-500 hover:bg-gray-700'
+                    }`}
+                  >
+                    {s.name}
+                    {attendanceLoaded && info?.hasAttendance && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-800 text-green-300 font-normal">
+                        出勤済
+                      </span>
+                    )}
+                    {attendanceLoaded && info?.hasShiftAssignment && !info?.hasAttendance && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-800 text-blue-300 font-normal">
+                        シフト
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
             </div>
           </div>
 

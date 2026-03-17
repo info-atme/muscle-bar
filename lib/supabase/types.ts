@@ -24,6 +24,8 @@ export interface Database {
           back_champagne: number
           back_orichan: number
           line_user_id: string | null
+          pin: string | null
+          hourly_rate: number
           is_active: boolean
           created_at: string
         }
@@ -38,6 +40,8 @@ export interface Database {
           back_champagne?: number
           back_orichan?: number
           line_user_id?: string | null
+          pin?: string | null
+          hourly_rate?: number
           is_active?: boolean
           created_at?: string
         }
@@ -52,6 +56,8 @@ export interface Database {
           back_champagne?: number
           back_orichan?: number
           line_user_id?: string | null
+          pin?: string | null
+          hourly_rate?: number
           is_active?: boolean
           created_at?: string
         }
