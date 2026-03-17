@@ -140,6 +140,30 @@ export default function DailyInputPage() {
     return map
   }, [supabase])
 
+  // ステップ3滞在中に30秒ごとに出勤状況をポーリング → 新規出勤を自動追加
+  useEffect(() => {
+    if (step !== 3 || !summary.date) return
+    const interval = setInterval(async () => {
+      const map = await fetchAttendanceInfo(summary.date)
+      for (const s of staffList) {
+        const info = map[s.id]
+        if (info?.hasAttendance && !selectedStaffIds.includes(s.id)) {
+          setSelectedStaffIds(prev => [...prev, s.id])
+          setStaffInputs(prev => [...prev, {
+            staff_id: s.id,
+            name: s.name,
+            op_count: 0,
+            kanpai_count: 0,
+            tip_amount: 0,
+            champagne_amount: 0,
+            orichan_amount: 0,
+          }])
+        }
+      }
+    }, 30000)
+    return () => clearInterval(interval)
+  }, [step, summary.date, staffList, selectedStaffIds, fetchAttendanceInfo])
+
   // localStorageから下書き復元
   useEffect(() => {
     try {
@@ -416,52 +440,86 @@ export default function DailyInputPage() {
       {/* ステップ3: スタッフ別OP入力 */}
       {step === 3 && (
         <div className="space-y-4">
-          <h2 className="text-lg font-semibold">スタッフ別OP実績</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">スタッフ別OP実績</h2>
+            <button
+              onClick={async () => {
+                const map = await fetchAttendanceInfo(summary.date)
+                // 新しく出勤したスタッフを自動追加
+                for (const s of staffList) {
+                  const info = map[s.id]
+                  if (info?.hasAttendance && !selectedStaffIds.includes(s.id)) {
+                    toggleStaff(s.id, s.name)
+                  }
+                }
+              }}
+              className="text-xs px-3 py-1 bg-gray-700 rounded-lg text-gray-300 hover:bg-gray-600 transition-colors"
+            >
+              出勤状況を更新
+            </button>
+          </div>
 
-          {/* スタッフ選択 */}
-          <div>
-            <p className="text-sm text-gray-400 mb-2">対象スタッフを選択（出退勤未登録でも選択可）</p>
-            <div className="flex flex-wrap gap-2">
-              {sortedStaffList.map((s) => {
-                const info = staffAttendanceMap[s.id]
-                const hasRecord = info && (info.hasAttendance || info.hasShiftAssignment)
-                const isSelected = selectedStaffIds.includes(s.id)
-
+          {/* 選択済みスタッフ表示 */}
+          {selectedStaffIds.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {staffInputs.map((input) => {
+                const info = staffAttendanceMap[input.staff_id]
                 return (
-                  <button
-                    key={s.id}
-                    onClick={() => toggleStaff(s.id, s.name)}
-                    className={`px-4 py-2 rounded-lg font-medium text-base transition-colors flex items-center gap-1.5 ${
-                      isSelected
-                        ? 'bg-blue-600 text-white'
-                        : hasRecord
-                          ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                          : 'bg-gray-800 text-gray-500 hover:bg-gray-700'
-                    }`}
-                  >
-                    {s.name}
-                    {attendanceLoaded && info?.hasAttendance && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-800 text-green-300 font-normal">
-                        出勤済
-                      </span>
-                    )}
-                    {attendanceLoaded && info?.hasShiftAssignment && !info?.hasAttendance && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-800 text-blue-300 font-normal">
-                        シフト
-                      </span>
-                    )}
-                  </button>
+                  <span key={input.staff_id} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-600/20 text-blue-300 rounded text-sm">
+                    {input.name}
+                    {info?.hasAttendance && <span className="text-[9px] text-green-400">●</span>}
+                    <button
+                      onClick={() => toggleStaff(input.staff_id, input.name)}
+                      className="text-blue-400 hover:text-red-400 ml-0.5"
+                    >×</button>
+                  </span>
                 )
               })}
             </div>
-            {attendanceLoaded && selectedStaffIds.some(id => {
-              const info = staffAttendanceMap[id]
-              return !info || (!info.hasAttendance && !info.hasShiftAssignment)
-            }) && (
-              <p className="text-xs text-yellow-400 mt-1">
-                ⚠ 出退勤未登録のスタッフが含まれています（後から出退勤を追加してください）
-              </p>
-            )}
+          )}
+
+          {/* スタッフ追加ボタン */}
+          <div>
+            <button
+              onClick={() => {
+                const el = document.getElementById('staff-add-panel')
+                if (el) el.classList.toggle('hidden')
+              }}
+              className="text-sm text-gray-400 hover:text-white transition-colors"
+            >
+              + スタッフを追加・変更
+            </button>
+            <div id="staff-add-panel" className={selectedStaffIds.length === 0 ? 'mt-2' : 'hidden mt-2'}>
+              <div className="flex flex-wrap gap-2">
+                {sortedStaffList.map((s) => {
+                  const info = staffAttendanceMap[s.id]
+                  const hasRecord = info && (info.hasAttendance || info.hasShiftAssignment)
+                  const isSelected = selectedStaffIds.includes(s.id)
+
+                  return (
+                    <button
+                      key={s.id}
+                      onClick={() => toggleStaff(s.id, s.name)}
+                      className={`px-3 py-1.5 rounded-lg text-sm transition-colors flex items-center gap-1.5 ${
+                        isSelected
+                          ? 'bg-blue-600 text-white'
+                          : hasRecord
+                            ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                            : 'bg-gray-800 text-gray-500 hover:bg-gray-700'
+                      }`}
+                    >
+                      {s.name}
+                      {attendanceLoaded && info?.hasAttendance && (
+                        <span className="text-[10px] px-1 py-0.5 rounded bg-green-800 text-green-300 font-normal">出勤</span>
+                      )}
+                      {attendanceLoaded && info?.hasShiftAssignment && !info?.hasAttendance && (
+                        <span className="text-[10px] px-1 py-0.5 rounded bg-blue-800 text-blue-300 font-normal">シフト</span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
           </div>
 
           {/* 選択したスタッフのOP入力 */}
