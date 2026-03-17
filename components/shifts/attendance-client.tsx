@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { format, parseISO } from 'date-fns'
+import { format, parseISO, addDays, subDays } from 'date-fns'
 import { ja } from 'date-fns/locale'
+import { Clock, ChevronLeft, ChevronRight, LogIn, LogOut } from 'lucide-react'
 
 type Staff = { id: string; name: string; role: 'owner' | 'manager' | 'staff' }
 type StaffBasic = { id: string; name: string }
@@ -45,10 +46,38 @@ export function AttendanceClient({ currentStaff, staffList, attendanceData: init
   const [editClockIn, setEditClockIn] = useState('')
   const [editClockOut, setEditClockOut] = useState('')
   const [photoModal, setPhotoModal] = useState<string | null>(null)
+  const [currentTime, setCurrentTime] = useState(new Date())
+
+  // Live clock update every second
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000)
+    return () => clearInterval(timer)
+  }, [])
 
   const myAttendance = attendance.find(
     (a) => a.staff_id === currentStaff.id && a.target_date === selectedDate
   )
+
+  // Navigate prev/next day
+  const navigateDay = useCallback(async (direction: 'prev' | 'next') => {
+    const current = parseISO(selectedDate)
+    const newDate = direction === 'next' ? addDays(current, 1) : subDays(current, 1)
+    const newDateStr = format(newDate, 'yyyy-MM-dd')
+    setSelectedDate(newDateStr)
+    setLoading(true)
+
+    const query = isManager
+      ? supabase.from('attendance').select('*').eq('target_date', newDateStr)
+      : supabase
+          .from('attendance')
+          .select('*')
+          .eq('staff_id', currentStaff.id)
+          .eq('target_date', newDateStr)
+
+    const { data } = await query
+    setAttendance((data ?? []) as AttendanceRecord[])
+    setLoading(false)
+  }, [selectedDate, isManager, currentStaff.id, supabase])
 
   // 日付変更時のデータ再取得
   const changeDate = useCallback(async (date: string) => {
@@ -136,7 +165,6 @@ export function AttendanceClient({ currentStaff, staffList, attendanceData: init
       .single()
 
     if (data) {
-      // 監査ログ
       await supabase.from('attendance_log').insert({
         attendance_id: recordId,
         action: 'approve',
@@ -174,7 +202,6 @@ export function AttendanceClient({ currentStaff, staffList, attendanceData: init
       })
     }
 
-    // 再取得
     const { data } = await supabase
       .from('attendance')
       .select('*')
@@ -280,15 +307,42 @@ export function AttendanceClient({ currentStaff, staffList, attendanceData: init
         <span className="text-sm text-gray-400">{currentStaff.name}</span>
       </div>
 
-      {/* 日付選択 */}
+      {/* Live clock */}
+      {isToday && (
+        <div className="bg-gray-800 rounded-xl p-4 text-center">
+          <div className="text-4xl font-mono font-bold tracking-wider">
+            {format(currentTime, 'HH:mm:ss')}
+          </div>
+          <div className="text-sm text-gray-400 mt-1">
+            {format(currentTime, 'yyyy年M月d日 (E)', { locale: ja })}
+          </div>
+        </div>
+      )}
+
+      {/* 日付選択 with prev/next arrows */}
       <div className="bg-gray-800 rounded-xl p-4">
-        <label className="block text-sm text-gray-400 mb-2">日付</label>
-        <input
-          type="date"
-          value={selectedDate}
-          onChange={(e) => changeDate(e.target.value)}
-          className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
+        <div className="flex items-center justify-between gap-3">
+          <button
+            onClick={() => navigateDay('prev')}
+            className="p-2 rounded-lg bg-gray-700 hover:bg-gray-600 transition-colors"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+          <div className="flex-1">
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => changeDate(e.target.value)}
+              className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <button
+            onClick={() => navigateDay('next')}
+            className="p-2 rounded-lg bg-gray-700 hover:bg-gray-600 transition-colors"
+          >
+            <ChevronRight className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
       {/* スタッフ自身の打刻ボタン */}
@@ -310,7 +364,6 @@ export function AttendanceClient({ currentStaff, staffList, attendanceData: init
             <span className={`text-xs px-2 py-1 rounded-full ${STATUS_LABELS[myAttendance.status]?.color ?? 'bg-gray-600'}`}>
               {STATUS_LABELS[myAttendance.status]?.label ?? myAttendance.status}
             </span>
-            {/* 承認ステータス */}
             {myAttendance.approved ? (
               <span className="text-green-400 text-sm" title="承認済">&#10003; 承認済</span>
             ) : (
@@ -324,15 +377,17 @@ export function AttendanceClient({ currentStaff, staffList, attendanceData: init
             <button
               onClick={clockIn}
               disabled={loading || (myAttendance?.status === 'working') || (myAttendance?.status === 'completed')}
-              className="flex-1 py-4 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-xl text-lg font-bold transition-colors"
+              className="flex-1 py-6 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-xl text-lg font-bold transition-colors flex items-center justify-center gap-2"
             >
+              <LogIn className="w-6 h-6" />
               出勤
             </button>
             <button
               onClick={clockOut}
               disabled={loading || !myAttendance || myAttendance.status !== 'working'}
-              className="flex-1 py-4 bg-red-600 hover:bg-red-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-xl text-lg font-bold transition-colors"
+              className="flex-1 py-6 bg-red-600 hover:bg-red-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-xl text-lg font-bold transition-colors flex items-center justify-center gap-2"
             >
+              <LogOut className="w-6 h-6" />
               退勤
             </button>
           </div>
@@ -343,9 +398,9 @@ export function AttendanceClient({ currentStaff, staffList, attendanceData: init
         )}
       </div>
 
-      {/* マネージャー用：全スタッフ一覧 */}
+      {/* マネージャー用：全スタッフ カードレイアウト */}
       {isManager && (
-        <div className="bg-gray-800 rounded-xl p-4">
+        <div>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-gray-400">
               スタッフ勤怠 ({format(parseISO(selectedDate), 'M/d', { locale: ja })})
@@ -369,7 +424,7 @@ export function AttendanceClient({ currentStaff, staffList, attendanceData: init
             <p className="text-gray-500 text-sm text-center py-4">読み込み中...</p>
           )}
 
-          <div className="space-y-2">
+          <div className="space-y-3">
             {staffList.map((staff) => {
               const record = attendance.find(
                 (a) => a.staff_id === staff.id && a.target_date === selectedDate
@@ -378,51 +433,77 @@ export function AttendanceClient({ currentStaff, staffList, attendanceData: init
               return (
                 <div
                   key={staff.id}
-                  className="py-3 border-b border-gray-700 last:border-0"
+                  className="bg-gray-800 rounded-xl p-4 space-y-3"
                 >
+                  {/* Header: name + status badge */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">{staff.name}</span>
-                      {record && (
-                        record.approved ? (
-                          <span className="text-green-400 text-xs" title="承認済">&#10003;</span>
-                        ) : (
-                          <span className="text-yellow-400 text-xs" title="未承認">&#9679;</span>
-                        )
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {record ? (
-                        <>
-                          {record.photo_url && (
-                            <button
-                              onClick={() => setPhotoModal(record.photo_url)}
-                              className="w-8 h-8 rounded overflow-hidden border border-gray-600 flex-shrink-0"
-                              title="写真を表示"
-                            >
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={record.photo_url}
-                                alt="出勤写真"
-                                className="w-full h-full object-cover"
-                              />
-                            </button>
-                          )}
-                          <span className="text-xs text-gray-400 font-mono">
-                            {formatTime(record.clock_in)} - {formatTime(record.clock_out)}
-                          </span>
-                          <span className={`text-xs px-2 py-1 rounded-full ${STATUS_LABELS[record.status]?.color ?? 'bg-gray-600'}`}>
-                            {STATUS_LABELS[record.status]?.label ?? record.status}
-                          </span>
-                        </>
+                      {/* Photo thumbnail */}
+                      {record?.photo_url ? (
+                        <button
+                          onClick={() => setPhotoModal(record.photo_url)}
+                          className="w-10 h-10 rounded-lg overflow-hidden border border-gray-600 flex-shrink-0"
+                          title="写真を表示"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={record.photo_url}
+                            alt="出勤写真"
+                            className="w-full h-full object-cover"
+                          />
+                        </button>
                       ) : (
-                        <span className="text-xs text-gray-600">未打刻</span>
+                        <div className="w-10 h-10 rounded-lg bg-gray-700 flex items-center justify-center flex-shrink-0">
+                          <span className="text-gray-500 text-xs">No</span>
+                        </div>
+                      )}
+                      <div>
+                        <span className="text-sm font-medium">{staff.name}</span>
+                        {record && (
+                          <div className="flex items-center gap-1 mt-0.5">
+                            {record.approved ? (
+                              <span className="text-green-400 text-[10px]">&#10003; 承認済</span>
+                            ) : (
+                              <span className="text-yellow-400 text-[10px]">&#9679; 未承認</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      {record ? (
+                        <span className={`text-xs px-2 py-1 rounded-full ${STATUS_LABELS[record.status]?.color ?? 'bg-gray-600'}`}>
+                          {STATUS_LABELS[record.status]?.label ?? record.status}
+                        </span>
+                      ) : (
+                        <span className="text-xs px-2 py-1 rounded-full bg-gray-700 text-gray-500">未打刻</span>
                       )}
                     </div>
                   </div>
-                  {/* アクションボタン（レコードがある場合のみ） */}
+
+                  {/* Clock-in / Clock-out times */}
                   {record && (
-                    <div className="flex flex-wrap gap-2 mt-2 ml-4">
+                    <div className="flex gap-4 text-sm">
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-gray-500" />
+                        <span className="text-gray-500">出勤</span>
+                        <span className="font-mono">{formatTime(record.clock_in)}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-gray-500" />
+                        <span className="text-gray-500">退勤</span>
+                        <span className="font-mono">{formatTime(record.clock_out)}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {record?.note && (
+                    <p className="text-xs text-gray-500">{record.note}</p>
+                  )}
+
+                  {/* Action buttons */}
+                  {record && (
+                    <div className="flex flex-wrap gap-2">
                       {!record.approved && (
                         <button
                           onClick={() => approveRecord(record.id)}
@@ -453,9 +534,6 @@ export function AttendanceClient({ currentStaff, staffList, attendanceData: init
                       >
                         遅刻
                       </button>
-                      {record.note && (
-                        <span className="text-xs text-gray-500 ml-2 self-center">{record.note}</span>
-                      )}
                     </div>
                   )}
                 </div>

@@ -17,6 +17,7 @@ import {
   Users,
   Wallet,
   LogOut,
+  HelpCircle,
 } from 'lucide-react'
 
 type Role = 'owner' | 'manager' | 'staff'
@@ -26,7 +27,7 @@ type Props = {
   role: Role
 }
 
-type TabItem = {
+type NavItem = {
   href: string
   label: string
   icon: React.ComponentType<{ className?: string }>
@@ -40,7 +41,7 @@ type SheetItem = {
   danger?: boolean
 }
 
-function getTabsForRole(role: Role): TabItem[] {
+function getTabsForRole(role: Role): NavItem[] {
   if (role === 'staff') {
     return [
       { href: '/me', label: 'マイページ', icon: User },
@@ -62,6 +63,7 @@ function getSheetItemsForRole(role: Role, onLogout: () => void): SheetItem[] {
   if (role === 'staff') {
     return [
       { href: '/events', label: 'イベント', icon: PartyPopper },
+      { href: '/help', label: 'ヘルプ', icon: HelpCircle },
       { label: 'ログアウト', icon: LogOut, action: onLogout, danger: true },
     ]
   }
@@ -75,13 +77,50 @@ function getSheetItemsForRole(role: Role, onLogout: () => void): SheetItem[] {
       { href: '/payroll', label: '給与', icon: Wallet },
     )
   }
+  items.push({ href: '/help', label: 'ヘルプ', icon: HelpCircle })
   items.push({ label: 'ログアウト', icon: LogOut, action: onLogout, danger: true })
   return items
+}
+
+/** All sidebar links for desktop (tabs + sheet items merged, no duplicates) */
+function getAllLinksForRole(role: Role): NavItem[] {
+  if (role === 'staff') {
+    return [
+      { href: '/me', label: 'マイページ', icon: User },
+      { href: '/shifts/attendance', label: '出退勤', icon: Clock },
+      { href: '/tasks', label: 'タスク', icon: CheckSquare },
+      { href: '/shifts/preferences', label: 'シフト', icon: Calendar },
+      { href: '/events', label: 'イベント', icon: PartyPopper },
+      { href: '/help', label: 'ヘルプ', icon: HelpCircle },
+    ]
+  }
+  const links: NavItem[] = [
+    { href: '/dashboard', label: '売上', icon: BarChart3 },
+    { href: '/daily/input', label: '入力', icon: PenSquare },
+    { href: '/shifts/manage', label: 'シフト', icon: Calendar },
+    { href: '/tasks', label: 'タスク', icon: CheckSquare },
+    { href: '/shifts/attendance', label: '出退勤', icon: Clock },
+    { href: '/events', label: 'イベント', icon: PartyPopper },
+  ]
+  if (role === 'owner') {
+    links.push(
+      { href: '/staff', label: 'スタッフ', icon: Users },
+      { href: '/payroll', label: '給与', icon: Wallet },
+    )
+  }
+  links.push({ href: '/help', label: 'ヘルプ', icon: HelpCircle })
+  return links
 }
 
 function isTabActive(pathname: string, href: string): boolean {
   if (href === '/') return pathname === '/'
   return pathname === href || pathname.startsWith(href + '/')
+}
+
+const roleLabelMap: Record<Role, string> = {
+  owner: 'オーナー',
+  manager: 'マネージャー',
+  staff: 'スタッフ',
 }
 
 export function AppNav({ staffName, role }: Props) {
@@ -115,6 +154,7 @@ export function AppNav({ staffName, role }: Props) {
 
   const tabs = getTabsForRole(role)
   const sheetItems = getSheetItemsForRole(role, handleLogout)
+  const allLinks = getAllLinksForRole(role)
 
   // Check if any sheet link is active (to highlight "More" tab)
   const moreActive = sheetItems.some(
@@ -123,9 +163,57 @@ export function AppNav({ staffName, role }: Props) {
 
   return (
     <>
-      {/* Bottom tab bar */}
+      {/* ===== Desktop Sidebar (>= md) ===== */}
+      <aside className="hidden md:flex md:flex-col md:fixed md:inset-y-0 md:left-0 md:w-64 bg-gray-800 border-r border-gray-700 z-40">
+        {/* Logo */}
+        <div className="flex items-center gap-2 px-6 py-5 border-b border-gray-700">
+          <BarChart3 className="w-6 h-6 text-blue-400" />
+          <span className="text-lg font-bold tracking-wide">Muscle Bar</span>
+        </div>
+
+        {/* Nav links */}
+        <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
+          {allLinks.map((link) => {
+            const active = isTabActive(pathname, link.href)
+            const Icon = link.icon
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  active
+                    ? 'bg-gray-700 text-blue-400 border-l-[3px] border-blue-400 pl-[9px]'
+                    : 'text-gray-300 hover:bg-gray-700/50 hover:text-white'
+                }`}
+              >
+                <Icon className="w-5 h-5 flex-shrink-0" />
+                <span>{link.label}</span>
+              </Link>
+            )
+          })}
+        </nav>
+
+        {/* Staff info + Logout at bottom */}
+        <div className="border-t border-gray-700 p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-200">{staffName}</span>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-gray-700 text-gray-400">
+              {roleLabelMap[role]}
+            </span>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm font-medium text-red-400 hover:bg-red-400/10 transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>ログアウト</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* ===== Mobile Bottom Tab Bar (< md) ===== */}
       <nav
-        className="fixed bottom-0 left-0 right-0 z-50 bg-gray-800 border-t border-gray-700"
+        className="fixed bottom-0 left-0 right-0 z-50 bg-gray-800 border-t border-gray-700 md:hidden"
         style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
       >
         <div className="flex items-stretch justify-around max-w-lg mx-auto">
@@ -159,10 +247,10 @@ export function AppNav({ staffName, role }: Props) {
         </div>
       </nav>
 
-      {/* Bottom sheet overlay */}
+      {/* Bottom sheet overlay (mobile only) */}
       {sheetOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-50 animate-fade-in"
+          className="fixed inset-0 bg-black/50 z-50 animate-fade-in md:hidden"
           onClick={() => setSheetOpen(false)}
         >
           <div

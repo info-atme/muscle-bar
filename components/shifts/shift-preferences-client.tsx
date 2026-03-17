@@ -37,10 +37,10 @@ const PREFERENCE_CYCLE: ('available' | 'preferred' | 'unavailable' | null)[] = [
   null,
 ]
 
-const PREFERENCE_LABELS: Record<string, { label: string; bg: string; text: string }> = {
-  available: { label: '出勤可', bg: 'bg-green-600', text: 'text-green-300' },
-  preferred: { label: '出勤希望', bg: 'bg-blue-600', text: 'text-blue-300' },
-  unavailable: { label: '出勤不可', bg: 'bg-red-600', text: 'text-red-300' },
+const PREFERENCE_STYLES: Record<string, { label: string; bg: string; cellBg: string; text: string }> = {
+  available: { label: '出勤可', bg: 'bg-green-600', cellBg: 'bg-green-600/20', text: 'text-green-300' },
+  preferred: { label: '出勤希望', bg: 'bg-blue-600', cellBg: 'bg-blue-600/20', text: 'text-blue-300' },
+  unavailable: { label: '出勤不可', bg: 'bg-red-600', cellBg: 'bg-red-600/20', text: 'text-red-300' },
 }
 
 export function ShiftPreferencesClient({ staffId, staffName, preferences: initialPrefs }: Props) {
@@ -79,7 +79,6 @@ export function ShiftPreferencesClient({ staffId, staffName, preferences: initia
     setSaving(true)
 
     if (nextPref === null) {
-      // 削除
       if (current) {
         await supabase.from('shift_preferences').delete().eq('id', current.id)
         setPreferences((prev) => {
@@ -89,7 +88,6 @@ export function ShiftPreferencesClient({ staffId, staffName, preferences: initia
         })
       }
     } else if (current) {
-      // 更新
       const { data } = await supabase
         .from('shift_preferences')
         .update({ preference: nextPref, updated_at: new Date().toISOString() })
@@ -100,7 +98,6 @@ export function ShiftPreferencesClient({ staffId, staffName, preferences: initia
         setPreferences((prev) => new Map(prev).set(dateStr, data as Preference))
       }
     } else {
-      // 新規作成
       const { data } = await supabase
         .from('shift_preferences')
         .insert({ staff_id: staffId, target_date: dateStr, preference: nextPref })
@@ -114,6 +111,46 @@ export function ShiftPreferencesClient({ staffId, staffName, preferences: initia
     setSaving(false)
   }, [currentMonth, preferences, staffId, supabase])
 
+  // 今週すべて出勤可
+  const markCurrentWeekAvailable = useCallback(async () => {
+    setSaving(true)
+    const now = new Date()
+    const weekStart = startOfWeek(now, { weekStartsOn: 1 })
+
+    for (let i = 0; i < 7; i++) {
+      const date = addDays(weekStart, i)
+      if (!isSameMonth(date, currentMonth)) continue
+
+      const dateStr = format(date, 'yyyy-MM-dd')
+      const current = preferences.get(dateStr)
+
+      if (current) {
+        if (current.preference !== 'available') {
+          const { data } = await supabase
+            .from('shift_preferences')
+            .update({ preference: 'available' as const, updated_at: new Date().toISOString() })
+            .eq('id', current.id)
+            .select()
+            .single()
+          if (data) {
+            setPreferences((prev) => new Map(prev).set(dateStr, data as Preference))
+          }
+        }
+      } else {
+        const { data } = await supabase
+          .from('shift_preferences')
+          .insert({ staff_id: staffId, target_date: dateStr, preference: 'available' as const })
+          .select()
+          .single()
+        if (data) {
+          setPreferences((prev) => new Map(prev).set(dateStr, data as Preference))
+        }
+      }
+    }
+
+    setSaving(false)
+  }, [currentMonth, preferences, staffId, supabase])
+
   const weekDays = ['月', '火', '水', '木', '金', '土', '日']
 
   return (
@@ -121,16 +158,6 @@ export function ShiftPreferencesClient({ staffId, staffName, preferences: initia
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">シフト希望</h1>
         <span className="text-sm text-gray-400">{staffName}</span>
-      </div>
-
-      {/* 凡例 */}
-      <div className="flex gap-3 flex-wrap">
-        {Object.entries(PREFERENCE_LABELS).map(([key, val]) => (
-          <div key={key} className="flex items-center gap-1.5">
-            <span className={`w-3 h-3 rounded-full ${val.bg}`} />
-            <span className="text-xs text-gray-400">{val.label}</span>
-          </div>
-        ))}
       </div>
 
       {/* 月ナビ */}
@@ -152,6 +179,15 @@ export function ShiftPreferencesClient({ staffId, staffName, preferences: initia
         </button>
       </div>
 
+      {/* Quick action */}
+      <button
+        onClick={markCurrentWeekAvailable}
+        disabled={saving}
+        className="w-full py-2.5 bg-green-700 hover:bg-green-600 disabled:bg-gray-700 disabled:text-gray-500 rounded-xl text-sm font-medium transition-colors"
+      >
+        今週すべて出勤可
+      </button>
+
       {/* カレンダーグリッド */}
       <div className="bg-gray-800 rounded-xl p-3">
         {/* 曜日ヘッダー */}
@@ -170,7 +206,7 @@ export function ShiftPreferencesClient({ staffId, staffName, preferences: initia
             const pref = preferences.get(dateStr)
             const isCurrentMonth = isSameMonth(date, currentMonth)
             const isToday = isSameDay(date, new Date())
-            const prefStyle = pref ? PREFERENCE_LABELS[pref.preference] : null
+            const prefStyle = pref ? PREFERENCE_STYLES[pref.preference] : null
 
             return (
               <button
@@ -178,24 +214,29 @@ export function ShiftPreferencesClient({ staffId, staffName, preferences: initia
                 onClick={() => handleDateTap(date)}
                 disabled={!isCurrentMonth || saving}
                 className={`
-                  aspect-square rounded-lg flex flex-col items-center justify-center gap-0.5 text-sm transition-colors
-                  ${!isCurrentMonth ? 'text-gray-700 cursor-default' : 'hover:bg-gray-700 active:bg-gray-600'}
-                  ${isToday ? 'ring-1 ring-blue-500' : ''}
-                  ${prefStyle ? prefStyle.bg + '/20' : ''}
+                  min-h-[56px] rounded-lg flex flex-col items-center justify-center gap-0.5 text-sm transition-all active:scale-95
+                  ${!isCurrentMonth ? 'text-gray-700 cursor-default' : 'hover:bg-gray-700'}
+                  ${isToday ? 'ring-2 ring-blue-500' : ''}
+                  ${prefStyle && isCurrentMonth ? prefStyle.cellBg : ''}
                 `}
               >
-                <span className={isCurrentMonth ? 'text-white' : 'text-gray-700'}>
+                <span className={isCurrentMonth ? 'text-white font-medium' : 'text-gray-700'}>
                   {format(date, 'd')}
                 </span>
-                {prefStyle && isCurrentMonth && (
-                  <span className={`text-[10px] leading-none ${prefStyle.text}`}>
-                    {prefStyle.label}
-                  </span>
-                )}
               </button>
             )
           })}
         </div>
+      </div>
+
+      {/* 凡例バー */}
+      <div className="flex items-center justify-center gap-4 bg-gray-800 rounded-xl px-4 py-3">
+        {Object.entries(PREFERENCE_STYLES).map(([key, val]) => (
+          <div key={key} className="flex items-center gap-1.5">
+            <span className={`w-4 h-4 rounded ${val.cellBg} border border-gray-600`} />
+            <span className="text-xs text-gray-400">{val.label}</span>
+          </div>
+        ))}
       </div>
 
       {/* 操作説明 */}

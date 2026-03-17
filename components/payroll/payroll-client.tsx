@@ -4,6 +4,7 @@ import { useMemo, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { format, parse, addMonths, subMonths } from 'date-fns'
 import { ja } from 'date-fns/locale'
+import { Download } from 'lucide-react'
 
 type Staff = {
   id: string
@@ -40,6 +41,51 @@ function calcHours(clockIn: string | null, clockOut: string | null): number {
   const end = new Date(clockOut)
   const diff = (end.getTime() - start.getTime()) / (1000 * 60 * 60)
   return diff > 0 ? diff : 0
+}
+
+function formatTime(isoStr: string | null): string {
+  if (!isoStr) return ''
+  try {
+    const d = new Date(isoStr)
+    return format(d, 'HH:mm')
+  } catch {
+    return ''
+  }
+}
+
+/** Generate CSV content with BOM for Excel UTF-8 compatibility */
+function generateCsv(headers: string[], rows: string[][]): string {
+  const BOM = '\uFEFF'
+  const escape = (val: string) => {
+    if (val.includes(',') || val.includes('"') || val.includes('\n')) {
+      return `"${val.replace(/"/g, '""')}"`
+    }
+    return val
+  }
+  const lines = [
+    headers.map(escape).join(','),
+    ...rows.map((row) => row.map(escape).join(',')),
+  ]
+  return BOM + lines.join('\r\n')
+}
+
+function downloadCsv(content: string, filename: string) {
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  working: '勤務中',
+  completed: '完了',
+  absent: '欠勤',
+  late: '遅刻',
 }
 
 export function PayrollClient({
@@ -127,11 +173,74 @@ export function PayrollClient({
     )
   }, [payrollData])
 
+  // --- CSV Downloads ---
+  const parsedMonth = useMemo(() => parse(month, 'yyyy-MM', new Date()), [month])
+  const csvYear = parsedMonth.getFullYear()
+  const csvMonth = parsedMonth.getMonth() + 1
+
+  const handlePayrollCsv = useCallback(() => {
+    const headers = ['名前', '出勤日数', '勤務時間', '時給', '基本給', 'バック合計', '総支給額']
+    const rows = payrollData.map((row) => [
+      row.name,
+      String(row.workDays),
+      row.totalHours.toFixed(1),
+      String(row.hourlyRate),
+      String(row.basePay),
+      String(row.backTotal),
+      String(row.totalPay),
+    ])
+    const content = generateCsv(headers, rows)
+    downloadCsv(content, `給与_${csvYear}年${csvMonth}月.csv`)
+  }, [payrollData, csvYear, csvMonth])
+
+  const handleAttendanceCsv = useCallback(() => {
+    const headers = ['名前', '日付', '出勤時間', '退勤時間', '勤務時間', 'ステータス']
+    const staffMap = new Map(staffList.map((s) => [s.id, s.name]))
+    const rows = attendanceList
+      .slice()
+      .sort((a, b) => {
+        const nameA = staffMap.get(a.staff_id) ?? ''
+        const nameB = staffMap.get(b.staff_id) ?? ''
+        if (nameA !== nameB) return nameA.localeCompare(nameB)
+        return a.target_date.localeCompare(b.target_date)
+      })
+      .map((a) => [
+        staffMap.get(a.staff_id) ?? '不明',
+        a.target_date,
+        formatTime(a.clock_in),
+        formatTime(a.clock_out),
+        calcHours(a.clock_in, a.clock_out).toFixed(1),
+        STATUS_LABELS[a.status] ?? a.status,
+      ])
+    const content = generateCsv(headers, rows)
+    downloadCsv(content, `勤怠_${csvYear}年${csvMonth}月.csv`)
+  }, [attendanceList, staffList, csvYear, csvMonth])
+
   return (
     <div className="space-y-6">
       {/* ヘッダー */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">給与計算</h1>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handlePayrollCsv}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors"
+            title="給与CSV出力"
+          >
+            <Download className="w-4 h-4" />
+            <span className="hidden sm:inline">給与CSV</span>
+            <span className="sm:hidden">CSV</span>
+          </button>
+          <button
+            onClick={handleAttendanceCsv}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors"
+            title="勤怠CSV出力"
+          >
+            <Download className="w-4 h-4" />
+            <span className="hidden sm:inline">勤怠CSV</span>
+            <span className="sm:hidden">勤怠</span>
+          </button>
+        </div>
       </div>
 
       {/* 月選択 */}
