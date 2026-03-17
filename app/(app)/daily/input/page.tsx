@@ -93,18 +93,17 @@ export default function DailyInputPage() {
   const supabase = createClient()
   const router = useRouter()
 
-  // スタッフ一覧を取得
+  // スタッフ一覧を取得（API経由でRLSバイパス）
   useEffect(() => {
     async function fetchStaff() {
-      const { data } = await supabase
-        .from('staff')
-        .select('id, name')
-        .eq('is_active', true)
-        .order('name')
-      if (data) setStaffList(data)
+      const res = await fetch('/api/staff-list')
+      if (res.ok) {
+        const data = await res.json()
+        if (Array.isArray(data)) setStaffList(data)
+      }
     }
     fetchStaff()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [])
 
   // 選択日の出勤・シフト情報を取得
   const fetchAttendanceInfo = useCallback(async (date: string) => {
