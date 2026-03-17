@@ -1,6 +1,7 @@
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { AppNav } from '@/components/ui/app-nav'
+import { ToastProvider } from '@/components/ui/toast'
 
 export const dynamic = 'force-dynamic'
 
@@ -43,10 +44,12 @@ export default async function AppLayout({
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
-      <AppNav staffName={staff.name} role={staff.role} />
-      <main className="max-w-4xl mx-auto px-4 py-6">
-        {children}
-      </main>
+      <ToastProvider>
+        <main className="max-w-4xl mx-auto px-4 py-6 pb-20">
+          {children}
+        </main>
+        <AppNav staffName={staff.name} role={staff.role} />
+      </ToastProvider>
     </div>
   )
 }

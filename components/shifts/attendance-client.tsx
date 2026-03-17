@@ -354,7 +354,7 @@ export function AttendanceClient({ currentStaff, staffList, attendanceData: init
               <button
                 onClick={approveAll}
                 disabled={loading}
-                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg text-xs font-medium transition-colors"
+                className="px-3 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg text-sm font-medium transition-colors"
               >
                 一括承認
               </button>
@@ -397,7 +397,7 @@ export function AttendanceClient({ currentStaff, staffList, attendanceData: init
                           {record.photo_url && (
                             <button
                               onClick={() => setPhotoModal(record.photo_url)}
-                              className="w-6 h-6 rounded overflow-hidden border border-gray-600 flex-shrink-0"
+                              className="w-8 h-8 rounded overflow-hidden border border-gray-600 flex-shrink-0"
                               title="写真を表示"
                             >
                               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -411,50 +411,50 @@ export function AttendanceClient({ currentStaff, staffList, attendanceData: init
                           <span className="text-xs text-gray-400 font-mono">
                             {formatTime(record.clock_in)} - {formatTime(record.clock_out)}
                           </span>
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_LABELS[record.status]?.color ?? 'bg-gray-600'}`}>
+                          <span className={`text-xs px-2 py-1 rounded-full ${STATUS_LABELS[record.status]?.color ?? 'bg-gray-600'}`}>
                             {STATUS_LABELS[record.status]?.label ?? record.status}
                           </span>
-                          {!record.approved && (
-                            <button
-                              onClick={() => approveRecord(record.id)}
-                              disabled={loading}
-                              className="px-2 py-0.5 bg-green-700 hover:bg-green-600 disabled:bg-gray-700 disabled:text-gray-500 rounded text-xs font-medium transition-colors"
-                            >
-                              承認
-                            </button>
-                          )}
-                          <button
-                            onClick={() => openEditModal(record)}
-                            disabled={loading}
-                            className="px-2 py-0.5 bg-gray-600 hover:bg-gray-500 disabled:bg-gray-700 disabled:text-gray-500 rounded text-xs font-medium transition-colors"
-                          >
-                            編集
-                          </button>
                         </>
                       ) : (
                         <span className="text-xs text-gray-600">未打刻</span>
                       )}
                     </div>
                   </div>
-                  {/* ステータス変更ボタン（レコードがある場合のみ） */}
+                  {/* アクションボタン（レコードがある場合のみ） */}
                   {record && (
-                    <div className="flex gap-2 mt-2 ml-4">
+                    <div className="flex flex-wrap gap-2 mt-2 ml-4">
+                      {!record.approved && (
+                        <button
+                          onClick={() => approveRecord(record.id)}
+                          disabled={loading}
+                          className="px-3 py-2 bg-green-700 hover:bg-green-600 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg text-sm font-medium transition-colors"
+                        >
+                          承認
+                        </button>
+                      )}
+                      <button
+                        onClick={() => openEditModal(record)}
+                        disabled={loading}
+                        className="px-3 py-2 bg-gray-600 hover:bg-gray-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg text-sm font-medium transition-colors"
+                      >
+                        編集
+                      </button>
                       <button
                         onClick={() => setStatus(record.id, 'absent')}
                         disabled={loading || record.status === 'absent'}
-                        className="px-2 py-0.5 bg-red-800 hover:bg-red-700 disabled:bg-gray-700 disabled:text-gray-500 rounded text-xs transition-colors"
+                        className="px-3 py-2 bg-red-800 hover:bg-red-700 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg text-sm transition-colors"
                       >
                         欠勤
                       </button>
                       <button
                         onClick={() => setStatus(record.id, 'late')}
                         disabled={loading || record.status === 'late'}
-                        className="px-2 py-0.5 bg-yellow-800 hover:bg-yellow-700 disabled:bg-gray-700 disabled:text-gray-500 rounded text-xs transition-colors"
+                        className="px-3 py-2 bg-yellow-800 hover:bg-yellow-700 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg text-sm transition-colors"
                       >
                         遅刻
                       </button>
                       {record.note && (
-                        <span className="text-xs text-gray-500 ml-2">{record.note}</span>
+                        <span className="text-xs text-gray-500 ml-2 self-center">{record.note}</span>
                       )}
                     </div>
                   )}

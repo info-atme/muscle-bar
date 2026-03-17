@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { format, parseISO } from 'date-fns'
+import { format, parseISO, isBefore, startOfDay } from 'date-fns'
 
 type Task = {
   id: string
@@ -163,7 +163,7 @@ export function TasksClient({ tasks: initialTasks, staffList, currentStaffId, ro
           <button
             key={s}
             onClick={() => setFilter(s)}
-            className={`px-3 py-1 rounded-full text-sm transition-colors ${
+            className={`px-3 py-2 rounded-full text-sm transition-colors ${
               filter === s ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
             }`}
           >
@@ -174,44 +174,62 @@ export function TasksClient({ tasks: initialTasks, staffList, currentStaffId, ro
 
       {/* タスク一覧 */}
       <div className="space-y-3">
-        {filtered.map((task) => (
-          <div
-            key={task.id}
-            className="bg-gray-800 rounded-xl p-4"
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex-1" onClick={() => canEdit && openEdit(task)}>
-                <p className={`font-medium ${canEdit ? 'cursor-pointer' : ''}`}>{task.title}</p>
-                <div className="flex flex-wrap gap-2 mt-2">
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${priorityStyle[task.priority]}`}>
-                    {priorityLabel[task.priority]}
-                  </span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${statusStyle[task.status]}`}>
-                    {statusLabel[task.status]}
-                  </span>
-                  <span className="text-xs text-gray-500">{staffName(task.assigned_to)}</span>
-                  {task.due_date && (
-                    <span className="text-xs text-gray-500">
-                      期限: {format(parseISO(task.due_date), 'M/d')}
+        {filtered.map((task) => {
+          const isOverdue = task.due_date && task.status !== 'done' && isBefore(parseISO(task.due_date), startOfDay(new Date()))
+          const priorityBorder = task.priority === 'urgent'
+            ? 'border-l-4 border-red-500'
+            : task.priority === 'high'
+              ? 'border-l-4 border-orange-500'
+              : ''
+
+          return (
+            <div
+              key={task.id}
+              className={`bg-gray-800 rounded-xl p-4 ${priorityBorder} ${isOverdue ? 'bg-red-900/20' : ''}`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1" onClick={() => canEdit && openEdit(task)}>
+                  <p className={`font-medium ${canEdit ? 'cursor-pointer' : ''}`}>{task.title}</p>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    <span className={`text-xs px-2 py-1 rounded-full ${priorityStyle[task.priority]}`}>
+                      {priorityLabel[task.priority]}
                     </span>
+                    <span className={`text-xs px-2 py-1 rounded-full ${statusStyle[task.status]}`}>
+                      {statusLabel[task.status]}
+                    </span>
+                    <span className="text-xs text-gray-500">{staffName(task.assigned_to)}</span>
+                    {task.due_date && (
+                      <span className={`text-xs ${isOverdue ? 'text-red-400 font-medium' : 'text-gray-500'}`}>
+                        期限: {format(parseISO(task.due_date), 'M/d')}
+                        {isOverdue && ' (期限超過)'}
+                      </span>
+                    )}
+                  </div>
+                  {task.note && <p className="text-sm text-gray-500 mt-1">{task.note}</p>}
+                </div>
+                {/* ステータス変更ボタン */}
+                <div className="flex flex-col gap-1">
+                  {task.status !== 'done' && (
+                    <button
+                      onClick={() => updateStatus(task.id, task.status === 'todo' ? 'in_progress' : 'done')}
+                      className="text-sm px-4 py-2 bg-gray-700 rounded-lg hover:bg-gray-600 transition-colors whitespace-nowrap"
+                    >
+                      {task.status === 'todo' ? '着手' : '完了'}
+                    </button>
+                  )}
+                  {task.status === 'done' && (
+                    <button
+                      onClick={() => updateStatus(task.id, 'in_progress')}
+                      className="text-sm px-4 py-2 bg-gray-700 rounded-lg hover:bg-gray-600 transition-colors whitespace-nowrap"
+                    >
+                      戻す
+                    </button>
                   )}
                 </div>
-                {task.note && <p className="text-sm text-gray-500 mt-1">{task.note}</p>}
-              </div>
-              {/* ステータス変更ボタン */}
-              <div className="flex flex-col gap-1">
-                {task.status !== 'done' && (
-                  <button
-                    onClick={() => updateStatus(task.id, task.status === 'todo' ? 'in_progress' : 'done')}
-                    className="text-xs px-2 py-1 bg-gray-700 rounded hover:bg-gray-600 transition-colors"
-                  >
-                    {task.status === 'todo' ? '着手' : '完了'}
-                  </button>
-                )}
               </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
         {filtered.length === 0 && (
           <p className="text-gray-500 text-sm text-center py-8">タスクがありません</p>
         )}

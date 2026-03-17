@@ -162,23 +162,23 @@ export function ShiftManageClient({
       {/* 凡例 */}
       <div className="flex gap-3 flex-wrap">
         <div className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full bg-green-500" />
+          <span className="w-4 h-4 rounded-full bg-green-500" />
           <span className="text-xs text-gray-400">出勤可</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full bg-blue-500" />
+          <span className="w-4 h-4 rounded-full bg-blue-500" />
           <span className="text-xs text-gray-400">出勤希望</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full bg-red-500" />
+          <span className="w-4 h-4 rounded-full bg-red-500" />
           <span className="text-xs text-gray-400">出勤不可</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="w-5 h-5 rounded bg-purple-600 text-[10px] flex items-center justify-center">済</span>
+          <span className="w-6 h-6 rounded bg-purple-600 text-xs flex items-center justify-center">済</span>
           <span className="text-xs text-gray-400">割当済</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="w-5 h-5 rounded bg-yellow-600 text-[10px] flex items-center justify-center">呼</span>
+          <span className="w-6 h-6 rounded bg-yellow-600 text-xs flex items-center justify-center">呼</span>
           <span className="text-xs text-gray-400">当日呼出</span>
         </div>
       </div>
@@ -188,7 +188,7 @@ export function ShiftManageClient({
         <button
           onClick={() => navigateWeek('prev')}
           disabled={loading}
-          className="px-3 py-1 bg-gray-700 rounded-lg text-sm hover:bg-gray-600 transition-colors disabled:opacity-50"
+          className="px-3 py-2 bg-gray-700 rounded-lg text-sm hover:bg-gray-600 transition-colors disabled:opacity-50"
         >
           前週
         </button>
@@ -196,7 +196,7 @@ export function ShiftManageClient({
         <button
           onClick={() => navigateWeek('next')}
           disabled={loading}
-          className="px-3 py-1 bg-gray-700 rounded-lg text-sm hover:bg-gray-600 transition-colors disabled:opacity-50"
+          className="px-3 py-2 bg-gray-700 rounded-lg text-sm hover:bg-gray-600 transition-colors disabled:opacity-50"
         >
           翌週
         </button>
@@ -237,7 +237,7 @@ export function ShiftManageClient({
                         {/* 希望表示 */}
                         {pref && (
                           <span
-                            className={`w-5 h-5 rounded-full ${PREF_COLORS[pref.preference]} flex items-center justify-center text-[9px] font-bold`}
+                            className={`w-6 h-6 rounded-full ${PREF_COLORS[pref.preference]} flex items-center justify-center text-[10px] font-bold`}
                           >
                             {PREF_LABELS[pref.preference]}
                           </span>
@@ -246,7 +246,7 @@ export function ShiftManageClient({
                         {/* 割り当て状態 */}
                         {assignment && (
                           <span
-                            className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                            className={`text-xs px-2 py-1 rounded font-medium ${
                               assignment.status === 'called_in'
                                 ? 'bg-yellow-600 text-yellow-100'
                                 : 'bg-purple-600 text-purple-100'
@@ -257,10 +257,10 @@ export function ShiftManageClient({
                         )}
 
                         {/* 操作ボタン */}
-                        <div className="flex gap-0.5">
+                        <div className="flex gap-1">
                           <button
                             onClick={() => toggleAssignment(staff.id, date)}
-                            className={`text-[10px] px-1 py-0.5 rounded transition-colors ${
+                            className={`text-sm px-3 py-2 rounded-lg transition-colors ${
                               assignment
                                 ? 'bg-gray-600 text-gray-300 hover:bg-gray-500'
                                 : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
@@ -271,7 +271,7 @@ export function ShiftManageClient({
                           {isToday && !assignment && (
                             <button
                               onClick={() => callIn(staff.id, date)}
-                              className="text-[10px] px-1 py-0.5 rounded bg-yellow-700 text-yellow-200 hover:bg-yellow-600 transition-colors"
+                              className="text-sm px-3 py-2 rounded-lg bg-yellow-700 text-yellow-200 hover:bg-yellow-600 transition-colors"
                             >
                               呼出
                             </button>

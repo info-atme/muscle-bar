@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { format } from 'date-fns'
 import { useRouter } from 'next/navigation'
+import { Minus, Plus, X } from 'lucide-react'
 
 type Staff = {
   id: string
@@ -39,7 +40,7 @@ type StaffAttendanceInfo = {
 
 const STORAGE_KEY = 'daily-input-draft'
 
-function NumberInput({
+function CountStepper({
   label,
   value,
   onChange,
@@ -52,16 +53,89 @@ function NumberInput({
 }) {
   return (
     <div>
-      <label className="block text-sm text-gray-400 mb-1">{label}</label>
+      <label className="block text-sm text-gray-400 mb-2">{label}</label>
+      <div className="flex items-center justify-center gap-4">
+        <button
+          type="button"
+          onClick={() => onChange(Math.max(0, value - 1))}
+          className="w-12 h-12 bg-gray-700 rounded-xl text-xl font-bold flex items-center justify-center active:bg-gray-600 transition-colors"
+        >
+          <Minus className="w-5 h-5" />
+        </button>
+        <div className="min-w-[4rem] text-center">
+          <span className="text-2xl font-bold">{value}</span>
+          {suffix && <span className="text-sm text-gray-400 ml-1">{suffix}</span>}
+        </div>
+        <button
+          type="button"
+          onClick={() => onChange(value + 1)}
+          className="w-12 h-12 bg-gray-700 rounded-xl text-xl font-bold flex items-center justify-center active:bg-gray-600 transition-colors"
+        >
+          <Plus className="w-5 h-5" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function MoneyInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: number
+  onChange: (v: number) => void
+}) {
+  return (
+    <div>
+      <label className="block text-sm text-gray-400 mb-2">{label}</label>
       <div className="flex items-center gap-2">
         <input
           type="number"
           inputMode="numeric"
           value={value || ''}
           onChange={(e) => onChange(Number(e.target.value) || 0)}
-          className="w-full px-4 py-3 rounded-lg bg-gray-800 text-white border border-gray-700 focus:border-blue-500 focus:outline-none text-xl text-right"
+          className="w-full px-4 py-3 rounded-lg bg-gray-800 text-white border border-gray-700 focus:border-blue-500 focus:outline-none text-2xl text-right font-bold"
         />
-        {suffix && <span className="text-gray-400 text-sm flex-shrink-0">{suffix}</span>}
+        <span className="text-gray-400 text-sm flex-shrink-0">円</span>
+      </div>
+      <div className="flex gap-2 mt-2">
+        <button
+          type="button"
+          onClick={() => onChange(value + 10000)}
+          className="flex-1 py-2 bg-gray-700 rounded-lg text-sm font-medium active:bg-gray-600 transition-colors"
+        >
+          +1万
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange(value + 50000)}
+          className="flex-1 py-2 bg-gray-700 rounded-lg text-sm font-medium active:bg-gray-600 transition-colors"
+        >
+          +5万
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange(value + 100000)}
+          className="flex-1 py-2 bg-gray-700 rounded-lg text-sm font-medium active:bg-gray-600 transition-colors"
+        >
+          +10万
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange(value + 500000)}
+          className="flex-1 py-2 bg-gray-700 rounded-lg text-sm font-medium active:bg-gray-600 transition-colors"
+        >
+          +50万
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange(0)}
+          className="py-2 px-3 bg-gray-700 rounded-lg text-sm font-medium text-red-400 active:bg-gray-600 transition-colors"
+        >
+          <X className="w-4 h-4" />
+        </button>
       </div>
     </div>
   )
@@ -140,9 +214,9 @@ export default function DailyInputPage() {
     return map
   }, [supabase])
 
-  // ステップ3滞在中に30秒ごとに出勤状況をポーリング → 新規出勤を自動追加
+  // ステップ2滞在中に30秒ごとに出勤状況をポーリング → 新規出勤を自動追加
   useEffect(() => {
-    if (step !== 3 || !summary.date) return
+    if (step !== 2 || !summary.date) return
     const interval = setInterval(async () => {
       const map = await fetchAttendanceInfo(summary.date)
       for (const s of staffList) {
@@ -226,8 +300,8 @@ export default function DailyInputPage() {
     })
   }
 
-  // 日付確定時にシフト・出勤情報を取得し、自動選択する
-  async function handleDateConfirm() {
+  // 日付変更時にシフト・出勤情報を取得し、自動選択する
+  async function handleDateAndAutoSelect() {
     const map = await fetchAttendanceInfo(summary.date)
 
     // 出勤記録またはシフトがあるスタッフを自動選択（既存の選択がなければ）
@@ -256,8 +330,36 @@ export default function DailyInputPage() {
         setStaffInputs(autoInputs)
       }
     }
+  }
 
-    setStep(2)
+  // 日付変更のハンドラー
+  async function handleDateChange(newDate: string) {
+    updateSummary('date', newDate)
+    // 日付変更時に出勤情報を自動取得
+    const map = await fetchAttendanceInfo(newDate)
+    if (selectedStaffIds.length === 0 && staffList.length > 0) {
+      const autoIds: string[] = []
+      const autoInputs: StaffInput[] = []
+      for (const staff of staffList) {
+        const info = map[staff.id]
+        if (info && (info.hasAttendance || info.hasShiftAssignment)) {
+          autoIds.push(staff.id)
+          autoInputs.push({
+            staff_id: staff.id,
+            name: staff.name,
+            op_count: 0,
+            kanpai_count: 0,
+            tip_amount: 0,
+            champagne_amount: 0,
+            orichan_amount: 0,
+          })
+        }
+      }
+      if (autoIds.length > 0) {
+        setSelectedStaffIds(autoIds)
+        setStaffInputs(autoInputs)
+      }
+    }
   }
 
   function updateStaffInput(index: number, field: keyof StaffInput, value: number) {
@@ -374,30 +476,63 @@ export default function DailyInputPage() {
     <div>
       <h1 className="text-xl font-bold mb-6">日次入力</h1>
 
-      {/* ステップインジケーター */}
+      {/* ステップインジケーター (3 steps) */}
       <div className="flex items-center gap-2 mb-8">
-        {[1, 2, 3, 4].map((s) => (
+        {[1, 2, 3].map((s) => (
           <div
             key={s}
-            className={`flex-1 h-1 rounded-full ${
+            className={`flex-1 h-1.5 rounded-full transition-colors ${
               s <= step ? 'bg-blue-500' : 'bg-gray-700'
             }`}
           />
         ))}
       </div>
 
-      {/* ステップ1: 営業日確認 */}
+      {/* ステップ1: 日付 + 売上サマリー (combined) */}
       {step === 1 && (
         <div className="space-y-6">
-          <h2 className="text-lg font-semibold">営業日を確認</h2>
-          <input
-            type="date"
-            value={summary.date}
-            onChange={(e) => updateSummary('date', e.target.value)}
-            className="w-full px-4 py-3 rounded-lg bg-gray-800 text-white border border-gray-700 focus:border-blue-500 focus:outline-none text-lg"
-          />
+          <h2 className="text-lg font-semibold">営業日・売上サマリー</h2>
+
+          {/* 日付ピッカー */}
+          <div>
+            <label className="block text-sm text-gray-400 mb-2">営業日</label>
+            <input
+              type="date"
+              value={summary.date}
+              onChange={(e) => handleDateChange(e.target.value)}
+              className="w-full px-4 py-3 rounded-lg bg-gray-800 text-white border border-gray-700 focus:border-blue-500 focus:outline-none text-lg"
+            />
+          </div>
+
+          {/* 売上入力 */}
+          <div className="space-y-4">
+            <MoneyInput label="現金合計" value={summary.cash_amount} onChange={(v) => updateSummary('cash_amount', v)} />
+            <MoneyInput label="クレカ合計" value={summary.card_amount} onChange={(v) => updateSummary('card_amount', v)} />
+            <div className="bg-gray-800/50 rounded-xl p-4 text-center">
+              <span className="text-sm text-gray-400">売上合計</span>
+              <p className="text-2xl font-bold text-white mt-1">{(summary.cash_amount + summary.card_amount).toLocaleString()}円</p>
+            </div>
+          </div>
+
+          {/* カウント入力 */}
+          <div className="grid grid-cols-2 gap-4">
+            <CountStepper label="組数" value={summary.group_count} onChange={(v) => updateSummary('group_count', v)} suffix="組" />
+            <CountStepper label="客数" value={summary.guest_count} onChange={(v) => updateSummary('guest_count', v)} suffix="名" />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <CountStepper label="男性" value={summary.male_count} onChange={(v) => updateSummary('male_count', v)} suffix="名" />
+            <CountStepper label="女性" value={summary.female_count} onChange={(v) => updateSummary('female_count', v)} suffix="名" />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <CountStepper label="新規" value={summary.new_count} onChange={(v) => updateSummary('new_count', v)} suffix="名" />
+            <CountStepper label="リピーター" value={summary.repeat_count} onChange={(v) => updateSummary('repeat_count', v)} suffix="名" />
+          </div>
+
           <button
-            onClick={handleDateConfirm}
+            onClick={async () => {
+              await handleDateAndAutoSelect()
+              setStep(2)
+            }}
             className="w-full py-4 bg-blue-600 rounded-lg font-bold text-lg hover:bg-blue-700 transition-colors"
           >
             次へ
@@ -405,40 +540,8 @@ export default function DailyInputPage() {
         </div>
       )}
 
-      {/* ステップ2: 売上サマリー入力 */}
+      {/* ステップ2: スタッフ別OP入力 */}
       {step === 2 && (
-        <div className="space-y-4">
-          <h2 className="text-lg font-semibold">売上サマリー</h2>
-          <NumberInput label="現金合計" value={summary.cash_amount} onChange={(v) => updateSummary('cash_amount', v)} suffix="円" />
-          <NumberInput label="クレカ合計" value={summary.card_amount} onChange={(v) => updateSummary('card_amount', v)} suffix="円" />
-          <div className="border-t border-gray-700 pt-2">
-            <p className="text-sm text-gray-400">合計: <span className="text-white text-lg font-bold">{(summary.cash_amount + summary.card_amount).toLocaleString()}円</span></p>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <NumberInput label="組数" value={summary.group_count} onChange={(v) => updateSummary('group_count', v)} suffix="組" />
-            <NumberInput label="客数" value={summary.guest_count} onChange={(v) => updateSummary('guest_count', v)} suffix="名" />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <NumberInput label="男性" value={summary.male_count} onChange={(v) => updateSummary('male_count', v)} suffix="名" />
-            <NumberInput label="女性" value={summary.female_count} onChange={(v) => updateSummary('female_count', v)} suffix="名" />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <NumberInput label="新規" value={summary.new_count} onChange={(v) => updateSummary('new_count', v)} suffix="名" />
-            <NumberInput label="リピーター" value={summary.repeat_count} onChange={(v) => updateSummary('repeat_count', v)} suffix="名" />
-          </div>
-          <div className="flex gap-3 pt-4">
-            <button onClick={() => setStep(1)} className="flex-1 py-4 bg-gray-700 rounded-lg font-bold text-lg hover:bg-gray-600 transition-colors">
-              戻る
-            </button>
-            <button onClick={() => setStep(3)} className="flex-1 py-4 bg-blue-600 rounded-lg font-bold text-lg hover:bg-blue-700 transition-colors">
-              次へ
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ステップ3: スタッフ別OP入力 */}
-      {step === 3 && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">スタッフ別OP実績</h2>
@@ -453,7 +556,7 @@ export default function DailyInputPage() {
                   }
                 }
               }}
-              className="text-xs px-3 py-1 bg-gray-700 rounded-lg text-gray-300 hover:bg-gray-600 transition-colors"
+              className="text-xs px-3 py-2 bg-gray-700 rounded-lg text-gray-300 hover:bg-gray-600 transition-colors"
             >
               出勤状況を更新
             </button>
@@ -470,7 +573,7 @@ export default function DailyInputPage() {
                     {info?.hasAttendance && <span className="text-[9px] text-green-400">●</span>}
                     <button
                       onClick={() => toggleStaff(input.staff_id, input.name)}
-                      className="text-blue-400 hover:text-red-400 ml-0.5"
+                      className="text-blue-400 hover:text-red-400 ml-0.5 w-6 h-6 flex items-center justify-center"
                     >×</button>
                   </span>
                 )
@@ -485,7 +588,7 @@ export default function DailyInputPage() {
                 const el = document.getElementById('staff-add-panel')
                 if (el) el.classList.toggle('hidden')
               }}
-              className="text-sm text-gray-400 hover:text-white transition-colors"
+              className="text-sm text-gray-400 hover:text-white transition-colors py-2"
             >
               + スタッフを追加・変更
             </button>
@@ -500,7 +603,7 @@ export default function DailyInputPage() {
                     <button
                       key={s.id}
                       onClick={() => toggleStaff(s.id, s.name)}
-                      className={`px-3 py-1.5 rounded-lg text-sm transition-colors flex items-center gap-1.5 ${
+                      className={`px-3 py-2 rounded-lg text-sm transition-colors flex items-center gap-1.5 ${
                         isSelected
                           ? 'bg-blue-600 text-white'
                           : hasRecord
@@ -510,10 +613,10 @@ export default function DailyInputPage() {
                     >
                       {s.name}
                       {attendanceLoaded && info?.hasAttendance && (
-                        <span className="text-[10px] px-1 py-0.5 rounded bg-green-800 text-green-300 font-normal">出勤</span>
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-green-800 text-green-300 font-normal">出勤</span>
                       )}
                       {attendanceLoaded && info?.hasShiftAssignment && !info?.hasAttendance && (
-                        <span className="text-[10px] px-1 py-0.5 rounded bg-blue-800 text-blue-300 font-normal">シフト</span>
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-blue-800 text-blue-300 font-normal">シフト</span>
                       )}
                     </button>
                   )
@@ -530,7 +633,7 @@ export default function DailyInputPage() {
                   <button
                     key={input.staff_id}
                     onClick={() => setCurrentStaffIndex(i)}
-                    className={`px-3 py-1 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
+                    className={`px-3 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
                       i === currentStaffIndex
                         ? 'bg-blue-600 text-white'
                         : 'bg-gray-700 text-gray-300'
@@ -542,37 +645,35 @@ export default function DailyInputPage() {
               </div>
 
               {staffInputs[currentStaffIndex] && (
-                <div className="bg-gray-800 rounded-xl p-4 space-y-3">
+                <div className="bg-gray-800 rounded-xl p-4 space-y-5">
                   <h3 className="font-bold text-lg">{staffInputs[currentStaffIndex].name}</h3>
-                  <NumberInput
+
+                  <CountStepper
                     label="OP回数"
                     value={staffInputs[currentStaffIndex].op_count}
                     onChange={(v) => updateStaffInput(currentStaffIndex, 'op_count', v)}
                     suffix="回"
                   />
-                  <NumberInput
+                  <CountStepper
                     label="乾杯回数"
                     value={staffInputs[currentStaffIndex].kanpai_count}
                     onChange={(v) => updateStaffInput(currentStaffIndex, 'kanpai_count', v)}
                     suffix="回"
                   />
-                  <NumberInput
+                  <MoneyInput
                     label="チップ額"
                     value={staffInputs[currentStaffIndex].tip_amount}
                     onChange={(v) => updateStaffInput(currentStaffIndex, 'tip_amount', v)}
-                    suffix="円"
                   />
-                  <NumberInput
+                  <MoneyInput
                     label="シャンパン額"
                     value={staffInputs[currentStaffIndex].champagne_amount}
                     onChange={(v) => updateStaffInput(currentStaffIndex, 'champagne_amount', v)}
-                    suffix="円"
                   />
-                  <NumberInput
+                  <MoneyInput
                     label="オリシャン額"
                     value={staffInputs[currentStaffIndex].orichan_amount}
                     onChange={(v) => updateStaffInput(currentStaffIndex, 'orichan_amount', v)}
-                    suffix="円"
                   />
                 </div>
               )}
@@ -580,18 +681,18 @@ export default function DailyInputPage() {
           )}
 
           <div className="flex gap-3 pt-4">
-            <button onClick={() => setStep(2)} className="flex-1 py-4 bg-gray-700 rounded-lg font-bold text-lg hover:bg-gray-600 transition-colors">
+            <button onClick={() => setStep(1)} className="flex-1 py-4 bg-gray-700 rounded-lg font-bold text-lg hover:bg-gray-600 transition-colors">
               戻る
             </button>
-            <button onClick={() => setStep(4)} className="flex-1 py-4 bg-blue-600 rounded-lg font-bold text-lg hover:bg-blue-700 transition-colors">
+            <button onClick={() => setStep(3)} className="flex-1 py-4 bg-blue-600 rounded-lg font-bold text-lg hover:bg-blue-700 transition-colors">
               確認へ
             </button>
           </div>
         </div>
       )}
 
-      {/* ステップ4: 確認画面 */}
-      {step === 4 && (
+      {/* ステップ3: 確認画面 */}
+      {step === 3 && (
         <div className="space-y-6">
           <h2 className="text-lg font-semibold">入力内容の確認</h2>
 
@@ -634,7 +735,7 @@ export default function DailyInputPage() {
           )}
 
           <div className="flex gap-3 pt-4">
-            <button onClick={() => setStep(3)} className="flex-1 py-4 bg-gray-700 rounded-lg font-bold text-lg hover:bg-gray-600 transition-colors">
+            <button onClick={() => setStep(2)} className="flex-1 py-4 bg-gray-700 rounded-lg font-bold text-lg hover:bg-gray-600 transition-colors">
               修正する
             </button>
             <button
