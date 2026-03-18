@@ -106,19 +106,21 @@ export function StaffManagementClient({ staffList: initialList }: Props) {
       pin: form.pin.trim() || null,
     }
     if (adding) {
-      const { data } = await supabase
-        .from('staff')
-        .insert(payload)
-        .select()
-        .single()
-      if (data) {
+      const res = await fetch('/api/admin/staff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (res.ok) {
+        const data = await res.json()
         setStaffList([...staffList, data as Staff])
       }
     } else if (editing) {
-      await supabase
-        .from('staff')
-        .update(payload)
-        .eq('id', editing)
+      await fetch('/api/admin/staff', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: editing, ...payload }),
+      })
       setStaffList(staffList.map((s) => s.id === editing ? { ...s, ...payload } : s))
     }
     setSaving(false)
