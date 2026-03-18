@@ -1,11 +1,23 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { format, parseISO, addDays, subDays } from 'date-fns'
+import {
+  format,
+  startOfMonth,
+  endOfMonth,
+  startOfWeek,
+  endOfWeek,
+  addDays,
+  addMonths,
+  subMonths,
+  isSameMonth,
+  isSameDay,
+  parseISO,
+} from 'date-fns'
 import { ja } from 'date-fns/locale'
 import Link from 'next/link'
-import { ChevronLeft, ChevronRight, Phone } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Phone, ArrowLeftRight, X, Users } from 'lucide-react'
 
 type Staff = { id: string; name: string }
 
@@ -29,7 +41,8 @@ type Props = {
   staffList: Staff[]
   preferences: Preference[]
   assignments: Assignment[]
-  weekDates: string[]
+  monthStart: string
+  monthEnd: string
 }
 
 const PREF_COLORS: Record<string, string> = {
@@ -39,81 +52,132 @@ const PREF_COLORS: Record<string, string> = {
 }
 
 const PREF_LABELS: Record<string, string> = {
-  available: '可',
-  preferred: '希望',
-  unavailable: '不可',
-}
-
-const PREF_BADGE_LABELS: Record<string, string> = {
   available: '出勤可',
   preferred: '希望',
   unavailable: '不可',
 }
+
+const PREF_TEXT_COLORS: Record<string, string> = {
+  available: 'text-green-400',
+  preferred: 'text-blue-400',
+  unavailable: 'text-red-400',
+}
+
+// Stable color palette for staff initials on calendar cells
+const STAFF_COLORS = [
+  'bg-blue-600',
+  'bg-green-600',
+  'bg-purple-600',
+  'bg-yellow-600',
+  'bg-pink-600',
+  'bg-teal-600',
+  'bg-orange-600',
+  'bg-indigo-600',
+  'bg-rose-600',
+  'bg-cyan-600',
+]
 
 export function ShiftManageClient({
   currentStaffId,
   staffList,
   preferences: initialPrefs,
   assignments: initialAssignments,
-  weekDates: initialWeekDates,
+  monthStart,
+  monthEnd,
 }: Props) {
   const supabase = createClient()
-  const [weekDates, setWeekDates] = useState(initialWeekDates)
+  const [currentMonth, setCurrentMonth] = useState(() => parseISO(monthStart))
   const [preferences, setPreferences] = useState(initialPrefs)
   const [assignments, setAssignments] = useState(initialAssignments)
   const [loading, setLoading] = useState(false)
-  // Mobile: index of the currently viewed day (0-6)
-  const [mobileDayIndex, setMobileDayIndex] = useState(() => {
-    const todayStr = format(new Date(), 'yyyy-MM-dd')
-    const idx = initialWeekDates.indexOf(todayStr)
-    return idx >= 0 ? idx : 0
-  })
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [swapStaffId, setSwapStaffId] = useState<string | null>(null)
 
-  // 週送り
-  const navigateWeek = useCallback(async (direction: 'prev' | 'next') => {
-    setLoading(true)
-    const baseDate = parseISO(weekDates[0])
-    const newStart = direction === 'next' ? addDays(baseDate, 7) : subDays(baseDate, 7)
-    const newDates: string[] = []
-    for (let i = 0; i < 7; i++) {
-      newDates.push(format(addDays(newStart, i), 'yyyy-MM-dd'))
+  // Staff color map (stable by index)
+  const staffColorMap = useMemo(() => {
+    const map = new Map<string, string>()
+    staffList.forEach((s, i) => {
+      map.set(s.id, STAFF_COLORS[i % STAFF_COLORS.length])
+    })
+    return map
+  }, [staffList])
+
+  // Staff name map
+  const staffNameMap = useMemo(() => {
+    const map = new Map<string, string>()
+    staffList.forEach((s) => map.set(s.id, s.name))
+    return map
+  }, [staffList])
+
+  // Calendar grid
+  const calendarDays = useMemo(() => {
+    const monthS = startOfMonth(currentMonth)
+    const monthE = endOfMonth(currentMonth)
+    const calStart = startOfWeek(monthS, { weekStartsOn: 1 })
+    const calEnd = endOfWeek(monthE, { weekStartsOn: 1 })
+    const days: Date[] = []
+    let day = calStart
+    while (day <= calEnd) {
+      days.push(day)
+      day = addDays(day, 1)
     }
+    return days
+  }, [currentMonth])
+
+  // Navigate month
+  const navigateMonth = useCallback(async (direction: 'prev' | 'next') => {
+    setLoading(true)
+    const newMonth = direction === 'next' ? addMonths(currentMonth, 1) : subMonths(currentMonth, 1)
+    const newStart = format(startOfMonth(newMonth), 'yyyy-MM-dd')
+    const newEnd = format(endOfMonth(newMonth), 'yyyy-MM-dd')
 
     const [prefRes, assignRes] = await Promise.all([
       supabase
         .from('shift_preferences')
         .select('*')
-        .gte('target_date', newDates[0])
-        .lte('target_date', newDates[6]),
+        .gte('target_date', newStart)
+        .lte('target_date', newEnd),
       supabase
         .from('shift_assignments')
         .select('*')
-        .gte('target_date', newDates[0])
-        .lte('target_date', newDates[6]),
+        .gte('target_date', newStart)
+        .lte('target_date', newEnd),
     ])
 
-    setWeekDates(newDates)
+    setCurrentMonth(newMonth)
     setPreferences((prefRes.data ?? []) as Preference[])
     setAssignments((assignRes.data ?? []) as Assignment[])
-    setMobileDayIndex(0)
+    setSelectedDate(null)
+    setSwapStaffId(null)
     setLoading(false)
-  }, [weekDates, supabase])
+  }, [currentMonth, supabase])
 
-  // シフト割り当てトグル
+  // Toggle assignment
   const toggleAssignment = useCallback(async (staffId: string, date: string) => {
     const existing = assignments.find(
       (a) => a.staff_id === staffId && a.target_date === date && a.status !== 'cancelled'
     )
 
     if (existing) {
+      // Optimistic
+      setAssignments((prev) =>
+        prev.map((a) => (a.id === existing.id ? { ...a, status: 'cancelled' as const } : a))
+      )
       await supabase
         .from('shift_assignments')
         .update({ status: 'cancelled' as const })
         .eq('id', existing.id)
-      setAssignments((prev) =>
-        prev.map((a) => (a.id === existing.id ? { ...a, status: 'cancelled' as const } : a))
-      )
     } else {
+      const optimisticId = `optimistic-${Date.now()}-${staffId}`
+      const optimistic: Assignment = {
+        id: optimisticId,
+        staff_id: staffId,
+        target_date: date,
+        status: 'assigned',
+        assigned_by: currentStaffId,
+      }
+      setAssignments((prev) => [...prev, optimistic])
+
       const { data } = await supabase
         .from('shift_assignments')
         .insert({
@@ -125,13 +189,25 @@ export function ShiftManageClient({
         .select()
         .single()
       if (data) {
-        setAssignments((prev) => [...prev, data as Assignment])
+        setAssignments((prev) =>
+          prev.map((a) => (a.id === optimisticId ? (data as Assignment) : a))
+        )
       }
     }
   }, [assignments, currentStaffId, supabase])
 
-  // 当日呼出
+  // Call in
   const callIn = useCallback(async (staffId: string, date: string) => {
+    const optimisticId = `optimistic-callin-${Date.now()}-${staffId}`
+    const optimistic: Assignment = {
+      id: optimisticId,
+      staff_id: staffId,
+      target_date: date,
+      status: 'called_in',
+      assigned_by: currentStaffId,
+    }
+    setAssignments((prev) => [...prev, optimistic])
+
     const { data } = await supabase
       .from('shift_assignments')
       .insert({
@@ -143,11 +219,13 @@ export function ShiftManageClient({
       .select()
       .single()
     if (data) {
-      setAssignments((prev) => [...prev, data as Assignment])
+      setAssignments((prev) =>
+        prev.map((a) => (a.id === optimisticId ? (data as Assignment) : a))
+      )
     }
   }, [currentStaffId, supabase])
 
-  // 全員割当 (available or preferred staff for a given day)
+  // Assign all available
   const assignAllAvailable = useCallback(async (date: string) => {
     setLoading(true)
     const availableStaffIds = staffList
@@ -181,18 +259,13 @@ export function ShiftManageClient({
     setLoading(false)
   }, [staffList, preferences, assignments, currentStaffId, supabase])
 
-  // クリア (remove all assignments for a given day)
+  // Clear day
   const clearDay = useCallback(async (date: string) => {
     setLoading(true)
     const dayAssignments = assignments.filter(
       (a) => a.target_date === date && a.status !== 'cancelled'
     )
-    for (const a of dayAssignments) {
-      await supabase
-        .from('shift_assignments')
-        .update({ status: 'cancelled' as const })
-        .eq('id', a.id)
-    }
+    // Optimistic
     setAssignments((prev) =>
       prev.map((a) =>
         a.target_date === date && a.status !== 'cancelled'
@@ -200,9 +273,48 @@ export function ShiftManageClient({
           : a
       )
     )
+    for (const a of dayAssignments) {
+      await supabase
+        .from('shift_assignments')
+        .update({ status: 'cancelled' as const })
+        .eq('id', a.id)
+    }
     setLoading(false)
   }, [assignments, supabase])
 
+  // Swap staff
+  const swapStaff = useCallback(async (originalStaffId: string, newStaffId: string, date: string) => {
+    // Cancel original
+    const original = assignments.find(
+      (a) => a.staff_id === originalStaffId && a.target_date === date && a.status !== 'cancelled'
+    )
+    if (original) {
+      setAssignments((prev) =>
+        prev.map((a) => (a.id === original.id ? { ...a, status: 'cancelled' as const } : a))
+      )
+      await supabase
+        .from('shift_assignments')
+        .update({ status: 'cancelled' as const })
+        .eq('id', original.id)
+    }
+    // Assign new
+    const { data } = await supabase
+      .from('shift_assignments')
+      .insert({
+        staff_id: newStaffId,
+        target_date: date,
+        status: 'assigned' as const,
+        assigned_by: currentStaffId,
+      })
+      .select()
+      .single()
+    if (data) {
+      setAssignments((prev) => [...prev, data as Assignment])
+    }
+    setSwapStaffId(null)
+  }, [assignments, currentStaffId, supabase])
+
+  // Helpers
   const getPreference = (staffId: string, date: string) =>
     preferences.find((p) => p.staff_id === staffId && p.target_date === date)
 
@@ -211,21 +323,44 @@ export function ShiftManageClient({
       (a) => a.staff_id === staffId && a.target_date === date && a.status !== 'cancelled'
     )
 
+  const getAssignedStaff = (date: string) =>
+    assignments
+      .filter((a) => a.target_date === date && a.status !== 'cancelled')
+      .map((a) => a.staff_id)
+
   const getAssignedCount = (date: string) =>
     assignments.filter((a) => a.target_date === date && a.status !== 'cancelled').length
 
   const today = format(new Date(), 'yyyy-MM-dd')
-  const weekLabel = `${format(parseISO(weekDates[0]), 'M/d', { locale: ja })} - ${format(parseISO(weekDates[6]), 'M/d', { locale: ja })}`
-  const dayLabels = ['月', '火', '水', '木', '金', '土', '日']
+  const weekDays = ['月', '火', '水', '木', '金', '土', '日']
 
-  // Mobile: current day data
-  const mobileDate = weekDates[mobileDayIndex]
-  const mobileDateLabel = format(parseISO(mobileDate), 'M/d (E)', { locale: ja })
-  const mobileIsToday = mobileDate === today
-  const mobileAssignedCount = getAssignedCount(mobileDate)
+  // Selected date details
+  const selectedDateObj = selectedDate ? parseISO(selectedDate) : null
+  const selectedDateLabel = selectedDateObj
+    ? format(selectedDateObj, 'M月d日 (E)', { locale: ja })
+    : ''
+  const isSelectedToday = selectedDate === today
+
+  // Sort staff for selected date: available/preferred first, unavailable last
+  const sortedStaffForDate = useMemo(() => {
+    if (!selectedDate) return staffList
+    return [...staffList].sort((a, b) => {
+      const prefA = getPreference(a.id, selectedDate)
+      const prefB = getPreference(b.id, selectedDate)
+      const order = (p: Preference | undefined) => {
+        if (!p) return 2
+        if (p.preference === 'preferred') return 0
+        if (p.preference === 'available') return 1
+        return 3
+      }
+      return order(prefA) - order(prefB)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, staffList, preferences])
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">シフト管理</h1>
         <Link
@@ -236,157 +371,465 @@ export function ShiftManageClient({
         </Link>
       </div>
 
-      {/* 凡例 */}
-      <div className="flex gap-3 flex-wrap">
-        <div className="flex items-center gap-1.5">
-          <span className="w-4 h-4 rounded-full bg-green-500" />
-          <span className="text-xs text-gray-400">出勤可</span>
+      {/* Legend */}
+      <div className="flex gap-3 flex-wrap text-xs">
+        <div className="flex items-center gap-1">
+          <span className="w-3 h-3 rounded-full bg-green-500" />
+          <span className="text-gray-400">出勤可</span>
         </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-4 h-4 rounded-full bg-blue-500" />
-          <span className="text-xs text-gray-400">出勤希望</span>
+        <div className="flex items-center gap-1">
+          <span className="w-3 h-3 rounded-full bg-blue-500" />
+          <span className="text-gray-400">希望</span>
         </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-4 h-4 rounded-full bg-red-500" />
-          <span className="text-xs text-gray-400">出勤不可</span>
+        <div className="flex items-center gap-1">
+          <span className="w-3 h-3 rounded-full bg-red-500" />
+          <span className="text-gray-400">不可</span>
         </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-6 h-6 rounded bg-purple-600 text-xs flex items-center justify-center">済</span>
-          <span className="text-xs text-gray-400">割当済</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-6 h-6 rounded bg-yellow-600 text-xs flex items-center justify-center">呼</span>
-          <span className="text-xs text-gray-400">当日呼出</span>
+        <div className="flex items-center gap-1">
+          <span className="w-3 h-3 rounded bg-purple-600" />
+          <span className="text-gray-400">割当済</span>
         </div>
       </div>
 
-      {/* 週ナビ */}
-      <div className="flex items-center justify-between">
-        <button
-          onClick={() => navigateWeek('prev')}
-          disabled={loading}
-          className="px-3 py-2 bg-gray-700 rounded-lg text-sm hover:bg-gray-600 transition-colors disabled:opacity-50"
-        >
-          前週
-        </button>
-        <h2 className="text-lg font-semibold">{weekLabel}</h2>
-        <button
-          onClick={() => navigateWeek('next')}
-          disabled={loading}
-          className="px-3 py-2 bg-gray-700 rounded-lg text-sm hover:bg-gray-600 transition-colors disabled:opacity-50"
-        >
-          翌週
-        </button>
-      </div>
+      {/* Layout: Calendar + Detail panel */}
+      <div className="flex flex-col md:flex-row gap-4">
+        {/* Calendar */}
+        <div className="flex-1 min-w-0">
+          {/* Month nav */}
+          <div className="flex items-center justify-between mb-3">
+            <button
+              onClick={() => navigateMonth('prev')}
+              disabled={loading}
+              className="p-2 bg-gray-700 rounded-lg hover:bg-gray-600 transition-colors disabled:opacity-50"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <h2 className="text-lg font-semibold">
+              {format(currentMonth, 'yyyy年M月', { locale: ja })}
+            </h2>
+            <button
+              onClick={() => navigateMonth('next')}
+              disabled={loading}
+              className="p-2 bg-gray-700 rounded-lg hover:bg-gray-600 transition-colors disabled:opacity-50"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
 
-      {/* ===== Mobile view: one day at a time ===== */}
-      <div className="md:hidden space-y-4">
-        {/* Day navigation */}
-        <div className="flex items-center justify-between bg-gray-800 rounded-xl px-4 py-3">
-          <button
-            onClick={() => setMobileDayIndex(Math.max(0, mobileDayIndex - 1))}
-            disabled={mobileDayIndex === 0}
-            className="p-2 rounded-lg bg-gray-700 hover:bg-gray-600 transition-colors disabled:opacity-30"
-          >
-            <ChevronLeft className="w-5 h-5" />
-          </button>
-          <div className="text-center">
-            <div className={`text-lg font-bold ${mobileIsToday ? 'text-blue-400' : ''}`}>
-              {mobileDateLabel}
+          {/* Calendar grid */}
+          <div className="bg-gray-800 rounded-xl p-2">
+            {/* Weekday headers */}
+            <div className="grid grid-cols-7 gap-0.5 mb-0.5">
+              {weekDays.map((d, i) => (
+                <div
+                  key={d}
+                  className={`text-center text-xs py-1 font-medium ${
+                    i === 5 ? 'text-blue-400' : i === 6 ? 'text-red-400' : 'text-gray-500'
+                  }`}
+                >
+                  {d}
+                </div>
+              ))}
             </div>
-            <div className="text-sm text-gray-400">
-              {mobileAssignedCount}名割当 / {staffList.length}名中
+
+            {/* Day cells */}
+            <div className="grid grid-cols-7 gap-0.5">
+              {calendarDays.map((date) => {
+                const dateStr = format(date, 'yyyy-MM-dd')
+                const isCurrentMonth = isSameMonth(date, currentMonth)
+                const isToday = isSameDay(date, new Date())
+                const isSelected = selectedDate === dateStr
+                const assignedIds = getAssignedStaff(dateStr)
+                const assignedCount = assignedIds.length
+
+                return (
+                  <button
+                    key={dateStr}
+                    onClick={() => {
+                      if (isCurrentMonth) {
+                        setSelectedDate(dateStr)
+                        setSwapStaffId(null)
+                      }
+                    }}
+                    disabled={!isCurrentMonth}
+                    className={`
+                      min-h-[52px] md:min-h-[64px] rounded-lg flex flex-col items-center py-1 px-0.5 transition-all relative
+                      ${!isCurrentMonth ? 'opacity-20 cursor-default' : 'hover:bg-gray-700/50 cursor-pointer'}
+                      ${isToday ? 'ring-2 ring-blue-500' : ''}
+                      ${isSelected ? 'bg-gray-700 ring-2 ring-purple-500' : ''}
+                    `}
+                  >
+                    {/* Date number */}
+                    <span
+                      className={`text-xs font-medium leading-none ${
+                        isToday ? 'text-blue-400 font-bold' : isCurrentMonth ? 'text-gray-300' : 'text-gray-700'
+                      }`}
+                    >
+                      {format(date, 'd')}
+                    </span>
+
+                    {/* Staff initials */}
+                    {isCurrentMonth && assignedCount > 0 && (
+                      <div className="flex flex-wrap justify-center gap-[2px] mt-1 max-w-full">
+                        {assignedIds.slice(0, 4).map((sid) => {
+                          const name = staffNameMap.get(sid) ?? '?'
+                          const color = staffColorMap.get(sid) ?? 'bg-gray-600'
+                          return (
+                            <span
+                              key={sid}
+                              className={`w-5 h-5 md:w-[18px] md:h-[18px] rounded-full ${color} text-[9px] font-bold flex items-center justify-center text-white leading-none`}
+                              title={name}
+                            >
+                              {name.charAt(0)}
+                            </span>
+                          )
+                        })}
+                        {assignedCount > 4 && (
+                          <span className="text-[9px] text-gray-400 leading-none self-center">
+                            +{assignedCount - 4}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Count badge */}
+                    {isCurrentMonth && assignedCount > 0 && (
+                      <span className="text-[9px] text-gray-500 mt-0.5 leading-none">
+                        {assignedCount}名
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
             </div>
           </div>
-          <button
-            onClick={() => setMobileDayIndex(Math.min(6, mobileDayIndex + 1))}
-            disabled={mobileDayIndex === 6}
-            className="p-2 rounded-lg bg-gray-700 hover:bg-gray-600 transition-colors disabled:opacity-30"
-          >
-            <ChevronRight className="w-5 h-5" />
-          </button>
         </div>
 
-        {/* Batch operations */}
+        {/* Day Detail Panel - Side panel on desktop */}
+        {selectedDate && (
+          <div className="hidden md:block w-80 flex-shrink-0">
+            <DayDetailPanel
+              date={selectedDate}
+              dateLabel={selectedDateLabel}
+              isToday={isSelectedToday}
+              staffList={sortedStaffForDate}
+              getPreference={getPreference}
+              getAssignment={getAssignment}
+              getAssignedCount={getAssignedCount}
+              toggleAssignment={toggleAssignment}
+              callIn={callIn}
+              assignAllAvailable={assignAllAvailable}
+              clearDay={clearDay}
+              swapStaffId={swapStaffId}
+              setSwapStaffId={setSwapStaffId}
+              swapStaff={swapStaff}
+              staffNameMap={staffNameMap}
+              staffColorMap={staffColorMap}
+              assignments={assignments}
+              loading={loading}
+              onClose={() => {
+                setSelectedDate(null)
+                setSwapStaffId(null)
+              }}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Mobile bottom sheet */}
+      {selectedDate && (
+        <div className="md:hidden fixed inset-0 z-50 flex flex-col justify-end">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/60"
+            onClick={() => {
+              setSelectedDate(null)
+              setSwapStaffId(null)
+            }}
+          />
+          {/* Sheet */}
+          <div className="relative bg-gray-900 rounded-t-2xl max-h-[80vh] flex flex-col animate-slide-up">
+            {/* Drag handle */}
+            <div className="flex justify-center pt-3 pb-1">
+              <div className="w-10 h-1 rounded-full bg-gray-600" />
+            </div>
+            <div className="overflow-y-auto p-4">
+              <DayDetailPanel
+                date={selectedDate}
+                dateLabel={selectedDateLabel}
+                isToday={isSelectedToday}
+                staffList={sortedStaffForDate}
+                getPreference={getPreference}
+                getAssignment={getAssignment}
+                getAssignedCount={getAssignedCount}
+                toggleAssignment={toggleAssignment}
+                callIn={callIn}
+                assignAllAvailable={assignAllAvailable}
+                clearDay={clearDay}
+                swapStaffId={swapStaffId}
+                setSwapStaffId={setSwapStaffId}
+                swapStaff={swapStaff}
+                staffNameMap={staffNameMap}
+                staffColorMap={staffColorMap}
+                assignments={assignments}
+                loading={loading}
+                onClose={() => {
+                  setSelectedDate(null)
+                  setSwapStaffId(null)
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {staffList.length === 0 && (
+        <p className="text-gray-500 text-sm text-center py-4">スタッフがいません</p>
+      )}
+    </div>
+  )
+}
+
+// Day Detail Panel component
+function DayDetailPanel({
+  date,
+  dateLabel,
+  isToday,
+  staffList,
+  getPreference,
+  getAssignment,
+  getAssignedCount,
+  toggleAssignment,
+  callIn,
+  assignAllAvailable,
+  clearDay,
+  swapStaffId,
+  setSwapStaffId,
+  swapStaff,
+  staffNameMap,
+  staffColorMap,
+  assignments,
+  loading,
+  onClose,
+}: {
+  date: string
+  dateLabel: string
+  isToday: boolean
+  staffList: Staff[]
+  getPreference: (staffId: string, date: string) => Preference | undefined
+  getAssignment: (staffId: string, date: string) => Assignment | undefined
+  getAssignedCount: (date: string) => number
+  toggleAssignment: (staffId: string, date: string) => Promise<void>
+  callIn: (staffId: string, date: string) => Promise<void>
+  assignAllAvailable: (date: string) => Promise<void>
+  clearDay: (date: string) => Promise<void>
+  swapStaffId: string | null
+  setSwapStaffId: (id: string | null) => void
+  swapStaff: (originalStaffId: string, newStaffId: string, date: string) => Promise<void>
+  staffNameMap: Map<string, string>
+  staffColorMap: Map<string, string>
+  assignments: Assignment[]
+  loading: boolean
+  onClose: () => void
+}) {
+  const assignedCount = getAssignedCount(date)
+
+  // Staff available for swap (not currently assigned)
+  const swapCandidates = staffList.filter((s) => {
+    const a = getAssignment(s.id, date)
+    return !a // not currently assigned
+  })
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className={`text-lg font-bold ${isToday ? 'text-blue-400' : ''}`}>
+            {dateLabel}
+          </h3>
+          <p className="text-sm text-gray-400">
+            {assignedCount}名割当 / {staffList.length}名中
+          </p>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-2 rounded-lg bg-gray-700 hover:bg-gray-600 transition-colors"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Batch operations */}
+      <div className="space-y-2">
+        <p className="text-xs text-gray-500 font-medium">一括操作</p>
         <div className="flex gap-2">
           <button
-            onClick={() => assignAllAvailable(mobileDate)}
+            onClick={() => assignAllAvailable(date)}
             disabled={loading}
-            className="flex-1 py-2 bg-purple-700 hover:bg-purple-600 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg text-sm font-medium transition-colors"
+            className="flex-1 py-2 bg-purple-700 hover:bg-purple-600 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-1"
           >
-            全員割当
+            <Users className="w-4 h-4" />
+            希望者を全員割当
           </button>
           <button
-            onClick={() => clearDay(mobileDate)}
+            onClick={() => clearDay(date)}
             disabled={loading}
-            className="flex-1 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg text-sm font-medium transition-colors"
+            className="py-2 px-4 bg-gray-700 hover:bg-gray-600 disabled:text-gray-500 rounded-lg text-sm font-medium transition-colors"
           >
             クリア
           </button>
         </div>
+        {isToday && (
+          <p className="text-xs text-yellow-500 flex items-center gap-1">
+            <Phone className="w-3 h-3" />
+            本日 - 当日呼出が可能です
+          </p>
+        )}
+      </div>
 
-        {/* Staff cards */}
-        <div className="space-y-2">
+      {/* Swap picker (shown when swap is active) */}
+      {swapStaffId && (
+        <div className="bg-gray-800 rounded-xl p-3 border border-yellow-600/50 space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-yellow-400">
+              入替先を選択: {staffNameMap.get(swapStaffId)}
+            </p>
+            <button
+              onClick={() => setSwapStaffId(null)}
+              className="text-xs text-gray-400 hover:text-gray-300"
+            >
+              キャンセル
+            </button>
+          </div>
+          <div className="space-y-1 max-h-40 overflow-y-auto">
+            {swapCandidates.length === 0 ? (
+              <p className="text-xs text-gray-500 py-2 text-center">候補なし</p>
+            ) : (
+              swapCandidates.map((s) => {
+                const pref = getPreference(s.id, date)
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => swapStaff(swapStaffId, s.id, date)}
+                    className="w-full flex items-center justify-between px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+                  >
+                    <span className="text-sm">{s.name}</span>
+                    {pref ? (
+                      <span className={`text-xs ${PREF_TEXT_COLORS[pref.preference]}`}>
+                        {PREF_LABELS[pref.preference]}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-500">未回答</span>
+                    )}
+                  </button>
+                )
+              })
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Preference overview */}
+      <div className="space-y-2">
+        <p className="text-xs text-gray-500 font-medium">希望状況</p>
+        <div className="flex flex-wrap gap-1">
           {staffList.map((staff) => {
-            const pref = getPreference(staff.id, mobileDate)
-            const assignment = getAssignment(staff.id, mobileDate)
+            const pref = getPreference(staff.id, date)
+            let dotColor = 'bg-gray-600'
+            let label = '未回答'
+            if (pref) {
+              dotColor = PREF_COLORS[pref.preference]
+              label = PREF_LABELS[pref.preference]
+            }
+            return (
+              <div
+                key={staff.id}
+                className="flex items-center gap-1 bg-gray-800 rounded-full px-2 py-1"
+                title={`${staff.name}: ${label}`}
+              >
+                <span className={`w-2 h-2 rounded-full ${dotColor}`} />
+                <span className="text-xs text-gray-300">{staff.name}</span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Shift assignment toggles */}
+      <div className="space-y-2">
+        <p className="text-xs text-gray-500 font-medium">シフト割当</p>
+        <div className="space-y-1.5">
+          {staffList.map((staff) => {
+            const pref = getPreference(staff.id, date)
+            const assignment = getAssignment(staff.id, date)
+            const isUnavailable = pref?.preference === 'unavailable'
 
             return (
               <div
                 key={staff.id}
-                className="bg-gray-800 rounded-xl p-4 space-y-3"
+                className={`flex items-center gap-2 p-2.5 rounded-xl transition-colors ${
+                  isUnavailable && !assignment ? 'bg-gray-800/50 opacity-60' : 'bg-gray-800'
+                }`}
               >
-                <div className="flex items-center justify-between">
-                  <span className="font-medium">{staff.name}</span>
+                {/* Staff name + preference */}
+                <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    {/* Preference badge */}
+                    <span className="text-sm font-medium truncate">{staff.name}</span>
                     {pref ? (
                       <span
-                        className={`text-xs px-2 py-1 rounded-full font-medium ${PREF_COLORS[pref.preference]} text-white`}
+                        className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${PREF_COLORS[pref.preference]} text-white flex-shrink-0`}
                       >
-                        {PREF_BADGE_LABELS[pref.preference]}
+                        {PREF_LABELS[pref.preference]}
                       </span>
                     ) : (
-                      <span className="text-xs px-2 py-1 rounded-full bg-gray-700 text-gray-500">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-700 text-gray-500 flex-shrink-0">
                         未回答
                       </span>
                     )}
-                    {/* Assignment status badge */}
-                    {assignment && (
-                      <span
-                        className={`text-xs px-2 py-1 rounded-full font-medium ${
-                          assignment.status === 'called_in'
-                            ? 'bg-yellow-600 text-yellow-100'
-                            : 'bg-purple-600 text-purple-100'
-                        }`}
-                      >
-                        {assignment.status === 'called_in' ? '呼出済' : '割当済'}
+                    {assignment?.status === 'called_in' && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-600 text-yellow-100 flex-shrink-0">
+                        呼出
                       </span>
                     )}
                   </div>
                 </div>
 
-                <div className="flex gap-2">
-                  {/* Toggle ON/OFF button */}
+                {/* Actions */}
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  {/* Swap button (only for assigned staff) */}
+                  {assignment && (
+                    <button
+                      onClick={() => setSwapStaffId(staff.id)}
+                      className="p-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 transition-colors"
+                      title="入替"
+                    >
+                      <ArrowLeftRight className="w-3.5 h-3.5 text-yellow-400" />
+                    </button>
+                  )}
+
+                  {/* Toggle */}
                   <button
-                    onClick={() => toggleAssignment(staff.id, mobileDate)}
-                    className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all active:scale-95 ${
-                      assignment
-                        ? 'bg-purple-600 text-white hover:bg-purple-500'
-                        : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                    onClick={() => toggleAssignment(staff.id, date)}
+                    className={`relative w-12 h-6 rounded-full transition-colors ${
+                      assignment ? 'bg-purple-600' : 'bg-gray-600'
                     }`}
                   >
-                    {assignment ? 'ON - 割当中' : 'OFF - 未割当'}
+                    <span
+                      className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                        assignment ? 'translate-x-6' : 'translate-x-0.5'
+                      }`}
+                    />
                   </button>
 
-                  {/* Call-in button for today */}
-                  {mobileIsToday && !assignment && (
+                  {/* Call-in (today only, unassigned) */}
+                  {isToday && !assignment && (
                     <button
-                      onClick={() => callIn(staff.id, mobileDate)}
-                      className="px-4 py-3 rounded-xl bg-yellow-700 text-yellow-200 hover:bg-yellow-600 transition-all active:scale-95 flex items-center gap-1.5"
+                      onClick={() => callIn(staff.id, date)}
+                      className="p-1.5 rounded-lg bg-yellow-700 hover:bg-yellow-600 transition-colors"
+                      title="当日呼出"
                     >
-                      <Phone className="w-4 h-4" />
-                      <span className="text-sm font-bold">呼出</span>
+                      <Phone className="w-3.5 h-3.5 text-yellow-200" />
                     </button>
                   )}
                 </div>
@@ -395,98 +838,6 @@ export function ShiftManageClient({
           })}
         </div>
       </div>
-
-      {/* ===== Desktop view: weekly grid table ===== */}
-      <div className="hidden md:block bg-gray-800 rounded-xl overflow-x-auto">
-        <table className="w-full min-w-[600px]">
-          <thead>
-            <tr className="border-b border-gray-700">
-              <th className="text-left text-sm text-gray-400 p-3 w-24">スタッフ</th>
-              {weekDates.map((date, i) => {
-                const isToday = date === today
-                return (
-                  <th
-                    key={date}
-                    className={`text-center text-sm p-2 ${isToday ? 'text-blue-400' : 'text-gray-400'}`}
-                  >
-                    <div>{dayLabels[i]}</div>
-                    <div className="text-xs">{format(parseISO(date), 'M/d')}</div>
-                    <div className="text-[10px] text-gray-500 mt-0.5">
-                      {getAssignedCount(date)}名
-                    </div>
-                  </th>
-                )
-              })}
-            </tr>
-          </thead>
-          <tbody>
-            {staffList.map((staff) => (
-              <tr key={staff.id} className="border-b border-gray-700/50 last:border-0">
-                <td className="p-3 text-sm font-medium whitespace-nowrap">{staff.name}</td>
-                {weekDates.map((date) => {
-                  const pref = getPreference(staff.id, date)
-                  const assignment = getAssignment(staff.id, date)
-                  const isToday = date === today
-
-                  return (
-                    <td key={date} className="p-2 text-center">
-                      <div className="flex flex-col items-center gap-1">
-                        {/* 希望表示 */}
-                        {pref && (
-                          <span
-                            className={`w-6 h-6 rounded-full ${PREF_COLORS[pref.preference]} flex items-center justify-center text-[10px] font-bold`}
-                          >
-                            {PREF_LABELS[pref.preference]}
-                          </span>
-                        )}
-
-                        {/* 割り当て状態 */}
-                        {assignment && (
-                          <span
-                            className={`text-xs px-2 py-1 rounded font-medium ${
-                              assignment.status === 'called_in'
-                                ? 'bg-yellow-600 text-yellow-100'
-                                : 'bg-purple-600 text-purple-100'
-                            }`}
-                          >
-                            {assignment.status === 'called_in' ? '呼出' : '割当'}
-                          </span>
-                        )}
-
-                        {/* 操作ボタン */}
-                        <div className="flex gap-1">
-                          <button
-                            onClick={() => toggleAssignment(staff.id, date)}
-                            className={`text-sm px-3 py-2 rounded-lg transition-colors ${
-                              assignment
-                                ? 'bg-gray-600 text-gray-300 hover:bg-gray-500'
-                                : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
-                            }`}
-                          >
-                            {assignment ? '解除' : '割当'}
-                          </button>
-                          {isToday && !assignment && (
-                            <button
-                              onClick={() => callIn(staff.id, date)}
-                              className="text-sm px-3 py-2 rounded-lg bg-yellow-700 text-yellow-200 hover:bg-yellow-600 transition-colors"
-                            >
-                              呼出
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                  )
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {staffList.length === 0 && (
-        <p className="text-gray-500 text-sm text-center py-4">スタッフがいません</p>
-      )}
     </div>
   )
 }
