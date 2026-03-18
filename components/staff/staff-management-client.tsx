@@ -63,6 +63,11 @@ export function StaffManagementClient({ staffList: initialList }: Props) {
   const [adding, setAdding] = useState(false)
   const [form, setForm] = useState<FormData>(defaultForm)
   const [saving, setSaving] = useState(false)
+  const [accountModal, setAccountModal] = useState<string | null>(null)
+  const [accountEmail, setAccountEmail] = useState('')
+  const [accountPassword, setAccountPassword] = useState('')
+  const [accountError, setAccountError] = useState('')
+  const [accountSaving, setAccountSaving] = useState(false)
   const supabase = createClient()
   const router = useRouter()
 
@@ -121,6 +126,43 @@ export function StaffManagementClient({ staffList: initialList }: Props) {
     router.refresh()
   }
 
+  function openAccountModal(staffId: string) {
+    setAccountModal(staffId)
+    setAccountEmail('')
+    setAccountPassword('')
+    setAccountError('')
+  }
+
+  async function handleCreateAccount() {
+    if (!accountModal) return
+    setAccountSaving(true)
+    setAccountError('')
+
+    const res = await fetch('/api/admin/create-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: accountEmail,
+        password: accountPassword,
+        staffId: accountModal,
+      }),
+    })
+    const data = await res.json()
+
+    if (!res.ok) {
+      setAccountError(data.error || 'アカウント作成に失敗しました')
+      setAccountSaving(false)
+      return
+    }
+
+    setStaffList(staffList.map((s) =>
+      s.id === accountModal ? { ...s, auth_user_id: data.userId } : s
+    ))
+    setAccountModal(null)
+    setAccountSaving(false)
+    router.refresh()
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -156,6 +198,16 @@ export function StaffManagementClient({ staffList: initialList }: Props) {
               <div className="flex items-center gap-2">
                 {!staff.is_active && (
                   <span className="text-xs px-2 py-0.5 bg-gray-700 text-gray-400 rounded-full">無効</span>
+                )}
+                {staff.auth_user_id ? (
+                  <span className="text-xs px-2 py-0.5 bg-green-800 text-green-300 rounded-full">アカウント有</span>
+                ) : (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); openAccountModal(staff.id) }}
+                    className="text-xs px-2 py-1 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors"
+                  >
+                    アカウント作成
+                  </button>
                 )}
                 <span className="text-gray-500 text-sm">→</span>
               </div>
@@ -291,6 +343,56 @@ export function StaffManagementClient({ staffList: initialList }: Props) {
                 className="flex-1 px-4 py-2 bg-blue-600 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
               >
                 {saving ? '保存中...' : '保存'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* アカウント作成モーダル */}
+      {accountModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-t-2xl sm:rounded-2xl w-full max-w-lg p-6">
+            <h2 className="text-lg font-bold mb-4">
+              ログインアカウント作成 — {staffList.find((s) => s.id === accountModal)?.name}
+            </h2>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm text-gray-400">メールアドレス</label>
+                <input
+                  type="email"
+                  value={accountEmail}
+                  onChange={(e) => setAccountEmail(e.target.value)}
+                  placeholder="staff@example.com"
+                  className="w-full mt-1 bg-gray-700 rounded-lg px-3 py-3 text-white outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="text-sm text-gray-400">パスワード（6文字以上）</label>
+                <input
+                  type="text"
+                  value={accountPassword}
+                  onChange={(e) => setAccountPassword(e.target.value)}
+                  placeholder="初期パスワード"
+                  className="w-full mt-1 bg-gray-700 rounded-lg px-3 py-3 text-white outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              {accountError && <p className="text-red-400 text-sm">{accountError}</p>}
+              <p className="text-xs text-gray-500">メール確認なしで即座にログイン可能なアカウントが作成されます。</p>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setAccountModal(null)}
+                className="flex-1 px-4 py-3 bg-gray-700 rounded-lg text-sm font-medium hover:bg-gray-600 transition-colors"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={handleCreateAccount}
+                disabled={accountSaving || !accountEmail || accountPassword.length < 6}
+                className="flex-1 px-4 py-3 bg-blue-600 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
+              >
+                {accountSaving ? '作成中...' : 'アカウント作成'}
               </button>
             </div>
           </div>
