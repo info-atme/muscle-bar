@@ -80,36 +80,31 @@ export function ShiftPreferencesClient({ staffId, staffName, preferences: initia
 
     if (nextPref === null) {
       if (current) {
-        await supabase.from('shift_preferences').delete().eq('id', current.id)
+        await fetch('/api/shift-preferences', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: current.id, staffId }),
+        })
         setPreferences((prev) => {
           const next = new Map(prev)
           next.delete(dateStr)
           return next
         })
       }
-    } else if (current) {
-      const { data } = await supabase
-        .from('shift_preferences')
-        .update({ preference: nextPref, updated_at: new Date().toISOString() })
-        .eq('id', current.id)
-        .select()
-        .single()
-      if (data) {
-        setPreferences((prev) => new Map(prev).set(dateStr, data as Preference))
-      }
     } else {
-      const { data } = await supabase
-        .from('shift_preferences')
-        .insert({ staff_id: staffId, target_date: dateStr, preference: nextPref })
-        .select()
-        .single()
-      if (data) {
+      const res = await fetch('/api/shift-preferences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staffId, targetDate: dateStr, preference: nextPref }),
+      })
+      if (res.ok) {
+        const data = await res.json()
         setPreferences((prev) => new Map(prev).set(dateStr, data as Preference))
       }
     }
 
     setSaving(false)
-  }, [currentMonth, preferences, staffId, supabase])
+  }, [currentMonth, preferences, staffId])
 
   // 今週すべて出勤可
   const markCurrentWeekAvailable = useCallback(async () => {
@@ -124,25 +119,14 @@ export function ShiftPreferencesClient({ staffId, staffName, preferences: initia
       const dateStr = format(date, 'yyyy-MM-dd')
       const current = preferences.get(dateStr)
 
-      if (current) {
-        if (current.preference !== 'available') {
-          const { data } = await supabase
-            .from('shift_preferences')
-            .update({ preference: 'available' as const, updated_at: new Date().toISOString() })
-            .eq('id', current.id)
-            .select()
-            .single()
-          if (data) {
-            setPreferences((prev) => new Map(prev).set(dateStr, data as Preference))
-          }
-        }
-      } else {
-        const { data } = await supabase
-          .from('shift_preferences')
-          .insert({ staff_id: staffId, target_date: dateStr, preference: 'available' as const })
-          .select()
-          .single()
-        if (data) {
+      if (!current || current.preference !== 'available') {
+        const res = await fetch('/api/shift-preferences', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ staffId, targetDate: dateStr, preference: 'available' }),
+        })
+        if (res.ok) {
+          const data = await res.json()
           setPreferences((prev) => new Map(prev).set(dateStr, data as Preference))
         }
       }

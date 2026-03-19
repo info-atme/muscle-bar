@@ -45,9 +45,8 @@ function getTabsForRole(role: Role): NavItem[] {
   if (role === 'staff') {
     return [
       { href: '/me', label: 'マイページ', icon: User },
-      { href: '/shifts/attendance', label: '出退勤', icon: Clock },
-      { href: '/tasks', label: 'タスク', icon: CheckSquare },
       { href: '/shifts/preferences', label: 'シフト', icon: Calendar },
+      { href: '/tasks', label: 'タスク', icon: CheckSquare },
     ]
   }
   // manager & owner share the same tabs
@@ -62,7 +61,6 @@ function getTabsForRole(role: Role): NavItem[] {
 function getSheetItemsForRole(role: Role, onLogout: () => void): SheetItem[] {
   if (role === 'staff') {
     return [
-      { href: '/events', label: 'イベント', icon: PartyPopper },
       { href: '/help', label: 'ヘルプ', icon: HelpCircle },
       { label: 'ログアウト', icon: LogOut, action: onLogout, danger: true },
     ]
@@ -87,10 +85,8 @@ function getAllLinksForRole(role: Role): NavItem[] {
   if (role === 'staff') {
     return [
       { href: '/me', label: 'マイページ', icon: User },
-      { href: '/shifts/attendance', label: '出退勤', icon: Clock },
-      { href: '/tasks', label: 'タスク', icon: CheckSquare },
       { href: '/shifts/preferences', label: 'シフト', icon: Calendar },
-      { href: '/events', label: 'イベント', icon: PartyPopper },
+      { href: '/tasks', label: 'タスク', icon: CheckSquare },
       { href: '/help', label: 'ヘルプ', icon: HelpCircle },
     ]
   }
